@@ -39,3 +39,12 @@ jobs:
 
       - name: Test
         run: swift test --parallel
+
+      - name: Build DocC documentation
+        run: >-
+          xcodebuild
+          docbuild
+          -scheme MBIssueKit
+          -destination 'generic/platform=iOS Simulator'
+          -derivedDataPath .build/docc-derived-data
+          CODE_SIGNING_ALLOWED=NO
