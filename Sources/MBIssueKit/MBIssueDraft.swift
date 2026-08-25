@@ -3,14 +3,23 @@ import Foundation
 /// User-authored content for a Jira task.
 public struct MBIssueDraft: Equatable, Sendable {
     public static let maximumTitleLength = 255
-    public static let maximumDescriptionLength = 32_767
+    public static let maximumDescriptionLength = 32767
 
     public let title: String
     public let description: String
+    public let severity: MBIssueSeverity
+    public let technicalContext: MBIssueTechnicalContext?
 
-    public init(title: String, description: String) {
+    public init(
+        title: String,
+        description: String,
+        severity: MBIssueSeverity = .major,
+        technicalContext: MBIssueTechnicalContext? = nil
+    ) {
         self.title = title
         self.description = description
+        self.severity = severity
+        self.technicalContext = technicalContext
     }
 
     public func validated() throws -> Self {
@@ -29,7 +38,12 @@ public struct MBIssueDraft: Equatable, Sendable {
         guard normalizedDescription.count <= Self.maximumDescriptionLength else {
             throw MBIssueValidationError.descriptionTooLong
         }
-        return Self(title: normalizedTitle, description: normalizedDescription)
+        return Self(
+            title: normalizedTitle,
+            description: normalizedDescription,
+            severity: severity,
+            technicalContext: technicalContext
+        )
     }
 }
 

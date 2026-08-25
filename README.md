@@ -2,9 +2,10 @@
 
 `MBIssueKit` is an iOS development tool for creating focused Jira tasks without leaving the host application.
 
-It provides a draggable overlay, a modern title/description composer, screenshot capture, image annotation, local retry
-storage, and direct Jira Cloud submission. Jira receives only the user's title and description plus screenshots the
-user keeps or selects—no logs, TCA actions, navigation state, device metadata, or technical context.
+It provides a draggable overlay, a modern title/description composer, selectable severity, screenshot capture, image
+annotation, technical runtime context, local retry storage, detailed report history, ZIP export, and authenticated
+submission through the host application's backend. It never collects application logs, network payloads, or
+state-management actions.
 
 ## Requirements
 
@@ -29,34 +30,41 @@ import MBIssueKit
 
 ## Configuration
 
-Configure Jira at runtime and install the overlay from development-only app startup code:
+Configure the host application's issue-reporting gateway. Jira credentials and field mappings stay on the server:
 
 ```swift
-#if DEBUG
-let jira = try MBIssueJiraConfiguration(
-    baseURL: URL(string: "https://your-company.atlassian.net")!,
-    email: "developer@your-company.com",
-    apiToken: jiraAPIToken,
-    projectKey: "MOB",
-    issueType: "Task"
+let gateway = try MBIssueGatewayConfiguration(
+    baseURL: URL(string: "https://api.example.com")!,
+    displayName: "Sonex issue reporting",
+    accessTokenProvider: {
+        guard let token = Session.shared.accessToken else {
+            throw SessionError.notAuthenticated
+        }
+        return token
+    }
 )
 
-MBIssueKit.configure(MBIssueKitConfiguration(jira: jira))
-MBIssueKit.install()
-#endif
+MBIssueKit.configure(MBIssueKitConfiguration(
+    gateway: gateway,
+    environment: "staging",
+    additionalContext: ["API cluster": "staging-eu"]
+))
 ```
 
-`MBIssueJiraConfiguration()` can alternatively read values injected by the host app:
+Use the shake gesture to toggle only the floating bar. The user opens the composer from the bar:
 
-- `MBISSUEKIT_JIRA_BASE_URL`
-- `MBISSUEKIT_JIRA_EMAIL`
-- `MBISSUEKIT_JIRA_API_TOKEN`
-- `MBISSUEKIT_JIRA_PROJECT_KEY`
-- `MBISSUEKIT_JIRA_ISSUE_TYPE` (optional, defaults to `Task`)
-- `MBISSUEKIT_JIRA_LABELS` (optional, comma-separated)
+```swift
+MBIssueKit.toggle()
+```
 
-Swift Package Manager cannot accept runtime secrets during dependency resolution. Keep API tokens out of source control
-and use MBIssueKit only in protected development or QA builds.
+`accessTokenProvider` is evaluated for every submission, so refreshed host-session tokens are used automatically. The
+package never accepts or stores a Jira email, API token, project key, issue type, label, or priority mapping. The server
+owns all Jira configuration and authenticates the incoming host session before creating an issue.
+
+Technical context includes the current screen/controller and navigation stack, application version/build, bundle,
+environment, OS, device identifier, architecture, appearance, locale, and screen size. The composer shows this data
+before submission. Reports can be inspected later and exported as a ZIP containing `report.md`, `metadata.json`, and
+screenshots. Jira credentials are never included in the app or ZIP.
 
 ## Development
 

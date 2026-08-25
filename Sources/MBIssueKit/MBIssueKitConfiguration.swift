@@ -1,86 +1,56 @@
 import Foundation
 
 /// Runtime settings supplied by the host application.
+///
+/// Jira credentials and field mappings intentionally do not belong here. The
+/// host configures only its authenticated issue-reporting backend.
 public struct MBIssueKitConfiguration: Sendable {
-    public let jira: MBIssueJiraConfiguration
+    public let gateway: MBIssueGatewayConfiguration
+    public let environment: String
+    public let additionalContext: [String: String]
 
-    public init(jira: MBIssueJiraConfiguration) {
-        self.jira = jira
+    public init(
+        gateway: MBIssueGatewayConfiguration,
+        environment: String = "unspecified",
+        additionalContext: [String: String] = [:]
+    ) {
+        self.gateway = gateway
+        let normalizedEnvironment = environment.trimmingCharacters(in: .whitespacesAndNewlines)
+        self.environment = normalizedEnvironment.isEmpty ? "unspecified" : normalizedEnvironment
+        self.additionalContext = additionalContext.reduce(into: [:]) { result, item in
+            let key = item.key.trimmingCharacters(in: .whitespacesAndNewlines)
+            let value = item.value.trimmingCharacters(in: .whitespacesAndNewlines)
+            if !key.isEmpty, !value.isEmpty {
+                result[key] = value
+            }
+        }
     }
 }
 
-/// Credentials and Jira Cloud field defaults used when creating tasks.
+/// Connection details for the host application's issue-reporting gateway.
 ///
-/// Swift Package Manager cannot receive runtime credentials while resolving a
-/// dependency. Supply this value from the host app at startup instead, and keep
-/// the API token out of source control.
-public struct MBIssueJiraConfiguration: Equatable, Sendable {
+/// The access token is resolved at request time so token refreshes do not require
+/// reconfiguring the package. The closure must return the host application's own
+/// short-lived session token, never a Jira credential.
+public struct MBIssueGatewayConfiguration: Sendable {
+    public typealias AccessTokenProvider = @Sendable () async throws -> String
+
     public let baseURL: URL
-    public let email: String
-    public let apiToken: String
-    public let projectKey: String
-    public let issueType: String
-    public let labels: [String]
+    public let displayName: String
+    let accessTokenProvider: AccessTokenProvider
 
     public init(
         baseURL: URL,
-        email: String,
-        apiToken: String,
-        projectKey: String,
-        issueType: String = "Task",
-        labels: [String] = ["mbissuekit", "ios"]
+        displayName: String = "Issue reporting",
+        accessTokenProvider: @escaping AccessTokenProvider
     ) throws {
         guard baseURL.scheme?.lowercased() == "https", baseURL.host != nil else {
             throw MBIssueConfigurationError.insecureBaseURL
         }
-
-        self.email = try Self.required(email, name: "email")
-        self.apiToken = try Self.required(apiToken, name: "apiToken")
-        self.projectKey = try Self.required(projectKey, name: "projectKey").uppercased()
-        self.issueType = try Self.required(issueType, name: "issueType")
-        self.labels = labels.compactMap { value in
-            let normalized = value.trimmingCharacters(in: .whitespacesAndNewlines)
-            return normalized.isEmpty ? nil : normalized
-        }
         self.baseURL = try Self.normalizedBaseURL(baseURL)
-    }
-
-    /// Creates Jira settings from values injected by the host app's scheme or
-    /// configuration layer.
-    public init(environment: [String: String] = ProcessInfo.processInfo.environment) throws {
-        let baseURLValue = try Self.environmentValue(.baseURL, in: environment)
-        guard let baseURL = URL(string: baseURLValue) else {
-            throw MBIssueConfigurationError.invalidBaseURL
-        }
-        let labelValue = environment[EnvironmentKey.labels.rawValue]
-        let labels = labelValue?.components(separatedBy: ",") ?? ["mbissuekit", "ios"]
-
-        try self.init(
-            baseURL: baseURL,
-            email: Self.environmentValue(.email, in: environment),
-            apiToken: Self.environmentValue(.apiToken, in: environment),
-            projectKey: Self.environmentValue(.projectKey, in: environment),
-            issueType: environment[EnvironmentKey.issueType.rawValue] ?? "Task",
-            labels: labels
-        )
-    }
-
-    private static func required(_ value: String, name: String) throws -> String {
-        let normalized = value.trimmingCharacters(in: .whitespacesAndNewlines)
-        guard !normalized.isEmpty else {
-            throw MBIssueConfigurationError.missingValue(name)
-        }
-        return normalized
-    }
-
-    private static func environmentValue(
-        _ key: EnvironmentKey,
-        in environment: [String: String]
-    ) throws -> String {
-        guard let value = environment[key.rawValue] else {
-            throw MBIssueConfigurationError.missingValue(key.rawValue)
-        }
-        return try required(value, name: key.rawValue)
+        let normalizedName = displayName.trimmingCharacters(in: .whitespacesAndNewlines)
+        self.displayName = normalizedName.isEmpty ? "Issue reporting" : normalizedName
+        self.accessTokenProvider = accessTokenProvider
     }
 
     private static func normalizedBaseURL(_ url: URL) throws -> URL {
@@ -99,30 +69,19 @@ public struct MBIssueJiraConfiguration: Equatable, Sendable {
     }
 }
 
-public extension MBIssueJiraConfiguration {
-    enum EnvironmentKey: String, CaseIterable, Sendable {
-        case baseURL = "MBISSUEKIT_JIRA_BASE_URL"
-        case email = "MBISSUEKIT_JIRA_EMAIL"
-        case apiToken = "MBISSUEKIT_JIRA_API_TOKEN"
-        case projectKey = "MBISSUEKIT_JIRA_PROJECT_KEY"
-        case issueType = "MBISSUEKIT_JIRA_ISSUE_TYPE"
-        case labels = "MBISSUEKIT_JIRA_LABELS"
-    }
-}
-
 public enum MBIssueConfigurationError: LocalizedError, Equatable, Sendable {
     case insecureBaseURL
     case invalidBaseURL
-    case missingValue(String)
+    case missingAccessToken
 
     public var errorDescription: String? {
         switch self {
         case .insecureBaseURL:
-            return "Jira base URL must be a valid HTTPS URL."
+            return "The issue-reporting backend must use a valid HTTPS URL."
         case .invalidBaseURL:
-            return "Jira base URL is invalid."
-        case let .missingValue(name):
-            return "Jira configuration is missing a value for \(name)."
+            return "The issue-reporting backend URL is invalid."
+        case .missingAccessToken:
+            return "The host application did not provide an access token."
         }
     }
 }

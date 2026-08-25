@@ -49,6 +49,8 @@ public final class MBIssueStore: ObservableObject {
             createdAt: Date(),
             title: draft.title,
             description: draft.description,
+            severity: draft.severity,
+            technicalContext: draft.technicalContext,
             screenshotFileNames: fileNames
         )
         entries.insert(entry, at: 0)
@@ -129,7 +131,7 @@ public final class MBIssueStore: ObservableObject {
         guard let directory = screenshotsDirectoryURL else {
             return
         }
-        fileNames.forEach { fileName in
+        for fileName in fileNames {
             try? fileManager.removeItem(at: directory.appendingPathComponent(fileName))
         }
     }
@@ -157,10 +159,10 @@ public final class MBIssueStore: ObservableObject {
     }
 
     #if DEBUG
-    static func preview(entries: [MBIssueEntry] = []) -> MBIssueStore {
-        let store = MBIssueStore(rootURL: nil)
-        store.entries = entries
-        return store
-    }
+        static func preview(entries: [MBIssueEntry] = []) -> MBIssueStore {
+            let store = MBIssueStore(rootURL: nil)
+            store.entries = entries
+            return store
+        }
     #endif
 }

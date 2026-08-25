@@ -1,63 +1,62 @@
 # Configuring MBIssueKit
 
-Inject Jira settings from the host app before installing the overlay.
+Connect MBIssueKit to an authenticated endpoint owned by the host application.
 
 ## Add the package
 
 Add the package URL to the host application's Swift Package dependencies and link the `MBIssueKit` library product to
 the app target.
 
-## Configure Jira
+## Configure the gateway
 
-Jira configuration is runtime configuration. Swift Package Manager does not provide a secure mechanism for passing
-per-app credentials while resolving a dependency.
+MBIssueKit never accepts Jira credentials or Jira field mappings. Configure only the host application's HTTPS backend
+and provide the signed-in user's current Sonex access token at request time.
 
 Create the configuration directly:
 
 ```swift
 import MBIssueKit
 
-#if DEBUG
-let jira = try MBIssueJiraConfiguration(
-    baseURL: URL(string: "https://your-company.atlassian.net")!,
-    email: "developer@your-company.com",
-    apiToken: jiraAPIToken,
-    projectKey: "MOB",
-    issueType: "Task",
-    labels: ["mbissuekit", "ios"]
+let gateway = try MBIssueGatewayConfiguration(
+    baseURL: URL(string: "https://api.example.com")!,
+    displayName: "Sonex issue reporting",
+    accessTokenProvider: {
+        guard let token = Session.shared.accessToken else {
+            throw SessionError.notAuthenticated
+        }
+        return token
+    }
 )
 
-MBIssueKit.configure(MBIssueKitConfiguration(jira: jira))
-MBIssueKit.install()
-#endif
+MBIssueKit.configure(MBIssueKitConfiguration(
+    gateway: gateway,
+    environment: "staging",
+    additionalContext: ["API cluster": "staging-eu"]
+))
 ```
 
-Or inject values through the host app's scheme, CI secrets, or configuration layer:
+The provider is asynchronous and runs immediately before a submission. It can therefore read a refreshed access token
+from the host app's keychain or session store. Do not return a Jira token from this closure.
+
+## Toggle the overlay
+
+Forward a shake notification to ``MBIssueKit/toggle(referenceWindow:)``:
 
 ```swift
-#if DEBUG
-let jira = try MBIssueJiraConfiguration()
-MBIssueKit.configure(MBIssueKitConfiguration(jira: jira))
-MBIssueKit.install()
-#endif
+MBIssueKit.toggle()
 ```
 
-The environment initializer reads:
+This only shows or hides the floating bar. The composer opens when the user chooses Report on that bar.
 
-| Key | Required | Example |
-| --- | --- | --- |
-| `MBISSUEKIT_JIRA_BASE_URL` | Yes | `https://your-company.atlassian.net` |
-| `MBISSUEKIT_JIRA_EMAIL` | Yes | `developer@your-company.com` |
-| `MBISSUEKIT_JIRA_API_TOKEN` | Yes | Jira Cloud API token |
-| `MBISSUEKIT_JIRA_PROJECT_KEY` | Yes | `MOB` |
-| `MBISSUEKIT_JIRA_ISSUE_TYPE` | No | `Task` |
-| `MBISSUEKIT_JIRA_LABELS` | No | `mbissuekit,ios` |
+`environment` and `additionalContext` are non-secret values included in the technical context shown to the user and
+sent to the reporting backend. Never put tokens, personal data, or request/response payloads in `additionalContext`.
 
-## Jira permissions
+## Server contract
 
-The account represented by the email and API token needs permission to browse the configured project, create the
-configured issue type, and add attachments. Jira must also have attachments enabled.
+The package posts multipart data to `/issue-reporting/api/v1/reports`, using the host token as a Bearer credential and
+the report UUID as `Idempotency-Key`. The server validates the session, owns all Jira credentials, creates the issue,
+and uploads selected screenshots. The response contains `issueID`, `issueKey`, and `issueURL`.
 
 ## Remove the overlay
 
-Call `MBIssueKit.remove()` when the development tool should no longer be available.
+Call ``MBIssueKit/remove()`` when the development tool should no longer be available.
