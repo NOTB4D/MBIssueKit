@@ -14,14 +14,14 @@ struct MBIssueEntryTests {
             severity: .blocker,
             technicalContext: .fixture,
             screenshotFileNames: ["capture.png"],
-            jiraStatus: .submitting
+            submissionStatus: .submitting
         )
         let data = try JSONEncoder().encode(entry)
 
         let decoded = try JSONDecoder().decode(MBIssueEntry.self, from: data)
 
-        #expect(decoded.jiraStatus == .failed)
-        #expect(decoded.jiraMessage == "The previous submission was interrupted. Try again.")
+        #expect(decoded.submissionStatus == .failed)
+        #expect(decoded.submissionMessage == "The previous submission was interrupted. Try again.")
         #expect(decoded.severity == .blocker)
         #expect(decoded.technicalContext == .fixture)
     }

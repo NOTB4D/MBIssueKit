@@ -11,23 +11,17 @@ enum MBIssueGatewayRequestBuilder {
         entry: MBIssueEntry,
         screenshots: [MBIssueGatewayAttachment],
         configuration: MBIssueGatewayConfiguration,
-        accessToken: String
+        accessToken: String,
+        reporterSessionToken: String?
     ) throws -> URLRequest {
-        let token = accessToken.trimmingCharacters(in: .whitespacesAndNewlines)
-        guard !token.isEmpty else {
-            throw MBIssueConfigurationError.missingAccessToken
-        }
-
-        var endpoint = configuration.baseURL
-        endpoint.appendPathComponent("issue-reporting")
-        endpoint.appendPathComponent("api")
-        endpoint.appendPathComponent("v1")
-        endpoint.appendPathComponent("reports")
+        let token = try validatedHostToken(accessToken)
+        let endpoint = endpoint(configuration, path: ["reports"])
 
         let boundary = "MBIssueKit-\(UUID().uuidString)"
         var request = URLRequest(url: endpoint)
         request.httpMethod = "POST"
         request.setValue("Bearer \(token)", forHTTPHeaderField: "Authorization")
+        try addReporterSession(reporterSessionToken, to: &request)
         request.setValue(entry.id.uuidString, forHTTPHeaderField: "Idempotency-Key")
         request.setValue("application/json", forHTTPHeaderField: "Accept")
         request.setValue("multipart/form-data; boundary=\(boundary)", forHTTPHeaderField: "Content-Type")
@@ -37,6 +31,103 @@ enum MBIssueGatewayRequestBuilder {
             boundary: boundary
         )
         return request
+    }
+
+    static func startReporterAuthorization(
+        configuration: MBIssueGatewayConfiguration,
+        accessToken: String
+    ) throws -> URLRequest {
+        let token = try validatedHostToken(accessToken)
+        var request = URLRequest(url: endpoint(configuration, path: ["reporter", "authorization"]))
+        request.httpMethod = "POST"
+        request.setValue("Bearer \(token)", forHTTPHeaderField: "Authorization")
+        request.setValue("application/json", forHTTPHeaderField: "Accept")
+        return request
+    }
+
+    static func completeReporterAuthorization(
+        authorizationID: UUID,
+        proof: String,
+        configuration: MBIssueGatewayConfiguration,
+        accessToken: String
+    ) throws -> URLRequest {
+        let token = try validatedHostToken(accessToken)
+        let normalizedProof = proof.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !normalizedProof.isEmpty else {
+            throw MBIssueConfigurationError.missingAuthorizationProof
+        }
+        var request = URLRequest(url: endpoint(
+            configuration,
+            path: ["reporter", "authorization", authorizationID.uuidString, "complete"]
+        ))
+        request.httpMethod = "POST"
+        request.setValue("Bearer \(token)", forHTTPHeaderField: "Authorization")
+        request.setValue("application/json", forHTTPHeaderField: "Accept")
+        request.setValue("application/json", forHTTPHeaderField: "Content-Type")
+        request.httpBody = try JSONEncoder().encode(AuthorizationCompletion(proof: normalizedProof))
+        return request
+    }
+
+    static func reporterConnection(
+        configuration: MBIssueGatewayConfiguration,
+        accessToken: String,
+        reporterSessionToken: String?
+    ) throws -> URLRequest {
+        let token = try validatedHostToken(accessToken)
+        var request = URLRequest(url: endpoint(configuration, path: ["reporter"]))
+        request.httpMethod = "GET"
+        request.setValue("Bearer \(token)", forHTTPHeaderField: "Authorization")
+        try addReporterSession(reporterSessionToken, to: &request)
+        request.setValue("application/json", forHTTPHeaderField: "Accept")
+        return request
+    }
+
+    static func disconnectReporter(
+        configuration: MBIssueGatewayConfiguration,
+        accessToken: String,
+        reporterSessionToken: String
+    ) throws -> URLRequest {
+        var request = try reporterConnection(
+            configuration: configuration,
+            accessToken: accessToken,
+            reporterSessionToken: reporterSessionToken
+        )
+        request.httpMethod = "DELETE"
+        return request
+    }
+
+    private static func endpoint(
+        _ configuration: MBIssueGatewayConfiguration,
+        path: [String]
+    ) -> URL {
+        var endpoint = configuration.baseURL
+        endpoint.appendPathComponent("issue-reporting")
+        endpoint.appendPathComponent("api")
+        endpoint.appendPathComponent("v1")
+        path.forEach { endpoint.appendPathComponent($0) }
+        return endpoint
+    }
+
+    private static func validatedHostToken(_ value: String) throws -> String {
+        let token = value.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !token.isEmpty else {
+            throw MBIssueConfigurationError.missingAccessToken
+        }
+        return token
+    }
+
+    private static func validatedReporterToken(_ value: String) throws -> String {
+        let token = value.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !token.isEmpty else {
+            throw MBIssueConfigurationError.missingReporterSession
+        }
+        return token
+    }
+
+    private static func addReporterSession(_ value: String?, to request: inout URLRequest) throws {
+        guard let value else { return }
+        let token = try validatedReporterToken(value)
+        request.setValue("Bearer \(token)", forHTTPHeaderField: "X-MBIssue-Reporter-Session")
     }
 
     private static func multipartBody(
@@ -74,6 +165,10 @@ enum MBIssueGatewayRequestBuilder {
             .replacingOccurrences(of: "\r", with: "_")
             .replacingOccurrences(of: "\n", with: "_")
     }
+}
+
+private struct AuthorizationCompletion: Encodable {
+    let proof: String
 }
 
 private extension MBIssueGatewayRequestBuilder {

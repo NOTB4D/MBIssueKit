@@ -11,6 +11,9 @@
         private let store = MBIssueStore.shared
         private var configuration: MBIssueKitConfiguration?
         private var gatewayClient: MBIssueGatewayClient?
+        private var reporterConnectionController = MBIssueReporterConnectionController(
+            managedProviderDisplayName: "Issue reporting"
+        )
         private var overlayWindow: MBIssueOverlayWindow?
         private weak var referenceWindow: UIWindow?
         private var submissionTasks: [UUID: Task<Void, Never>] = [:]
@@ -26,6 +29,22 @@
                 configuration: configuration.gateway,
                 session: urlSession
             )
+            if let authentication = configuration.gateway.reporterAuthentication,
+               let gatewayClient
+            {
+                let webAuthorizer = MBIssueSystemWebAuthorizer { [weak self] in
+                    self?.overlayWindow ?? self?.referenceWindow
+                }
+                reporterConnectionController = MBIssueReporterConnectionController(
+                    gateway: gatewayClient,
+                    callbackURLScheme: authentication.callbackURLScheme,
+                    webAuthorizer: webAuthorizer
+                )
+            } else {
+                reporterConnectionController = MBIssueReporterConnectionController(
+                    managedProviderDisplayName: configuration.gateway.displayName
+                )
+            }
         }
 
         func install(referenceWindow: UIWindow?) {
@@ -147,7 +166,7 @@
             )
             let view = MBIssueComposerView(
                 capturedImage: capturedImage,
-                projectKey: configuration.gateway.displayName,
+                destinationName: configuration.gateway.displayName,
                 technicalContext: technicalContext,
                 onCancel: { [weak self] in self?.dismissPresented() },
                 onSaveDraft: { [weak self] draft, images in
@@ -162,18 +181,23 @@
                     submit(ids: [entry.id])
                 }
             )
-            present(view.environmentObject(store), from: root)
+            present(
+                view
+                    .environmentObject(store)
+                    .environmentObject(reporterConnectionController),
+                from: root
+            )
         }
 
         private func presentList() {
             guard let root = overlayWindow?.rootViewController,
                   root.presentedViewController == nil,
-                  let projectKey = configuration?.gateway.displayName
+                  let destinationName = configuration?.gateway.displayName
             else {
                 return
             }
             let view = MBIssueListView(
-                projectKey: projectKey,
+                destinationName: destinationName,
                 onClose: { [weak self] in self?.dismissPresented() },
                 onNewIssue: { [weak self] in
                     self?.dismissPresented {
@@ -185,7 +209,12 @@
                 onOpen: { UIApplication.shared.open($0) },
                 onExport: { [weak self] entries in self?.share(entries: entries) }
             )
-            present(view.environmentObject(store), from: root)
+            present(
+                view
+                    .environmentObject(store)
+                    .environmentObject(reporterConnectionController),
+                from: root
+            )
         }
 
         private func present(_ view: some View, from root: UIViewController) {

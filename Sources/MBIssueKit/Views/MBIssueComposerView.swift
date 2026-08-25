@@ -4,12 +4,13 @@
 
     struct MBIssueComposerView: View {
         let capturedImage: UIImage?
-        let projectKey: String
+        let destinationName: String
         let technicalContext: MBIssueTechnicalContext
         let onCancel: () -> Void
         let onSaveDraft: (MBIssueDraft, [UIImage]) throws -> Void
         let onCreate: (MBIssueDraft, [UIImage]) throws -> Void
 
+        @EnvironmentObject private var reporterConnection: MBIssueReporterConnectionController
         @State private var title = ""
         @State private var issueDescription = ""
         @State private var severity = MBIssueSeverity.major
@@ -21,14 +22,14 @@
 
         init(
             capturedImage: UIImage?,
-            projectKey: String,
+            destinationName: String,
             technicalContext: MBIssueTechnicalContext,
             onCancel: @escaping () -> Void,
             onSaveDraft: @escaping (MBIssueDraft, [UIImage]) throws -> Void,
             onCreate: @escaping (MBIssueDraft, [UIImage]) throws -> Void
         ) {
             self.capturedImage = capturedImage
-            self.projectKey = projectKey
+            self.destinationName = destinationName
             self.technicalContext = technicalContext
             self.onCancel = onCancel
             self.onSaveDraft = onSaveDraft
@@ -42,6 +43,7 @@
                 ScrollView {
                     LazyVStack(alignment: .leading, spacing: 16) {
                         hero
+                        MBIssueReporterConnectionCard(controller: reporterConnection)
                         titleCard
                         descriptionCard
                         severityCard
@@ -77,6 +79,7 @@
                 Text(errorMessage ?? "Unknown error")
             }
             .onAppear { focusedField = .title }
+            .task { await reporterConnection.refresh() }
         }
 
         private var header: some View {
@@ -108,7 +111,7 @@
 
         private var hero: some View {
             VStack(alignment: .leading, spacing: 8) {
-                Text("JIRA TASK · \(projectKey)")
+                Text("\(providerDisplayName.uppercased()) · \(providerDestinationName)")
                     .font(.caption.weight(.bold))
                     .tracking(1.1)
                     .foregroundColor(MBIssueTheme.accent)
@@ -240,7 +243,7 @@
                             Text("Screenshots")
                                 .font(.subheadline.weight(.semibold))
                                 .foregroundColor(MBIssueTheme.primaryText)
-                            Text("Optional Jira attachments")
+                            Text("Optional issue-tracker attachments")
                                 .font(.caption)
                                 .foregroundColor(MBIssueTheme.secondaryText)
                         }
@@ -331,7 +334,7 @@
 
         private var privacyNote: some View {
             Label {
-                Text("Title, description, severity, the technical context shown above, and selected screenshots are sent to Jira. Logs, network payloads, and state-management actions are never collected.")
+                Text("Title, description, severity, the technical context shown above, and selected screenshots are sent to the configured issue tracker. Logs, network payloads, and state-management actions are never collected.")
             } icon: {
                 Image(systemName: "hand.raised.fill")
                     .foregroundColor(MBIssueTheme.accent)
@@ -351,7 +354,7 @@
                             Text("Save Draft")
                         }
                         .font(.subheadline.weight(.bold))
-                        .foregroundColor(isCreateEnabled ? MBIssueTheme.primaryText : MBIssueTheme.tertiaryText)
+                        .foregroundColor(isDraftValid ? MBIssueTheme.primaryText : MBIssueTheme.tertiaryText)
                         .frame(maxWidth: .infinity)
                         .frame(height: 52)
                         .background(MBIssueTheme.elevatedSurface)
@@ -362,27 +365,27 @@
                         }
                     }
                     .buttonStyle(.plain)
-                    .disabled(!isCreateEnabled)
+                    .disabled(!isDraftValid)
                     .accessibilityIdentifier("mbissue.save-draft")
 
                     Button(action: create) {
                         HStack(spacing: 7) {
                             Image(systemName: "arrow.up.right.square.fill")
-                            Text("Create Jira Task")
+                            Text("Create Task")
                         }
                         .font(.subheadline.weight(.bold))
                         .foregroundColor(.black)
                         .frame(maxWidth: .infinity)
                         .frame(height: 52)
-                        .background(isCreateEnabled ? MBIssueTheme.accent : MBIssueTheme.elevatedSurface)
+                        .background(isSubmissionEnabled ? MBIssueTheme.accent : MBIssueTheme.elevatedSurface)
                         .clipShape(RoundedRectangle(cornerRadius: 15, style: .continuous))
                     }
                     .buttonStyle(.plain)
-                    .disabled(!isCreateEnabled)
+                    .disabled(!isSubmissionEnabled)
                     .accessibilityIdentifier("mbissue.create")
                 }
 
-                Text("Save locally for a later batch, or create a separate Jira task now.")
+                Text(submissionHint)
                     .font(.caption2)
                     .foregroundColor(MBIssueTheme.tertiaryText)
             }
@@ -405,13 +408,32 @@
             }
         }
 
-        private var isCreateEnabled: Bool {
+        private var isDraftValid: Bool {
             (try? MBIssueDraft(
                 title: title,
                 description: issueDescription,
                 severity: severity,
                 technicalContext: technicalContext
             ).validated()) != nil
+        }
+
+        private var isSubmissionEnabled: Bool {
+            isDraftValid && reporterConnection.state.canSubmit
+        }
+
+        private var providerDisplayName: String {
+            reporterConnection.state.provider?.displayName ?? "Issue tracker"
+        }
+
+        private var providerDestinationName: String {
+            reporterConnection.state.provider?.destinationName ?? destinationName
+        }
+
+        private var submissionHint: String {
+            if reporterConnection.state.canSubmit {
+                return "Save locally for a later batch, or create a separate task now."
+            }
+            return "Connect a verified reporter account above to create a task. Saving a local draft is still available."
         }
 
         private var errorBinding: Binding<Bool> {
@@ -500,10 +522,10 @@
     }
 
     #if DEBUG
-        #Preview("New Jira task") {
+        #Preview("New issue") {
             MBIssueComposerView(
                 capturedImage: nil,
-                projectKey: "MOB",
+                destinationName: "MOB",
                 technicalContext: MBIssueTechnicalContext(
                     screenName: "Checkout",
                     viewControllerName: "CheckoutViewController",

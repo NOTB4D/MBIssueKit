@@ -1,6 +1,6 @@
 import Foundation
 
-/// User-authored content for a Jira task.
+/// User-authored content for a provider-neutral issue report.
 public struct MBIssueDraft: Equatable, Sendable {
     public static let maximumTitleLength = 255
     public static let maximumDescriptionLength = 32767

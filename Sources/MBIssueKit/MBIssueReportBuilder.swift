@@ -85,7 +85,7 @@ enum MBIssueReportBuilder {
             "**ID:** `\(entry.id.uuidString)`  ",
             "**Created:** \(dateString(entry.createdAt))  ",
             "**Severity:** \(entry.severity.title)  ",
-            "**Jira status:** \(entry.jiraStatus.rawValue)",
+            "**Submission status:** \(entry.submissionStatus.rawValue)",
             "",
             "### Description",
             "",
@@ -105,10 +105,10 @@ enum MBIssueReportBuilder {
             })
         }
 
-        if let submission = entry.jiraSubmission {
+        if let submission = entry.submission {
             lines.append(contentsOf: [
                 "",
-                "### Jira",
+                "### \(submission.providerDisplayName)",
                 "",
                 "- Key: \(submission.issueKey)",
                 "- URL: \(submission.issueURL.absoluteString)",

@@ -9,7 +9,7 @@ the app target.
 
 ## Configure the gateway
 
-MBIssueKit never accepts Jira credentials or Jira field mappings. Configure only the host application's HTTPS backend
+MBIssueKit never accepts provider credentials or field mappings. Configure only the host application's HTTPS backend
 and provide the signed-in user's current Sonex access token at request time.
 
 Create the configuration directly:
@@ -17,9 +17,17 @@ Create the configuration directly:
 ```swift
 import MBIssueKit
 
+let reporterStore = MBIssueKeychainReporterSessionStore(
+    service: Bundle.main.bundleIdentifier! + ".MBIssueKit"
+)
+let reporterAuthentication = try MBIssueReporterAuthenticationConfiguration(
+    callbackURLScheme: "sonex-mbissue",
+    sessionStore: reporterStore
+)
 let gateway = try MBIssueGatewayConfiguration(
     baseURL: URL(string: "https://api.example.com")!,
     displayName: "Sonex issue reporting",
+    reporterAuthentication: reporterAuthentication,
     accessTokenProvider: {
         guard let token = Session.shared.accessToken else {
             throw SessionError.notAuthenticated
@@ -36,7 +44,12 @@ MBIssueKit.configure(MBIssueKitConfiguration(
 ```
 
 The provider is asynchronous and runs immediately before a submission. It can therefore read a refreshed access token
-from the host app's keychain or session store. Do not return a Jira token from this closure.
+from the host app's keychain or session store. Do not return an issue-tracker token from this closure.
+
+Register the same custom URL scheme in the app target. Interactive login uses an ephemeral system authentication
+session. The issue tracker's authorization code and access/refresh tokens terminate at the backend; the callback URL
+returning to the app contains no secret. Only a backend-issued, revocable reporter session is stored in the device-only,
+non-synchronizing Keychain item.
 
 ## Toggle the overlay
 
@@ -54,8 +67,10 @@ sent to the reporting backend. Never put tokens, personal data, or request/respo
 ## Server contract
 
 The package posts multipart data to `/issue-reporting/api/v1/reports`, using the host token as a Bearer credential and
-the report UUID as `Idempotency-Key`. The server validates the session, owns all Jira credentials, creates the issue,
-and uploads selected screenshots. The response contains `issueID`, `issueKey`, and `issueURL`.
+the report UUID as `Idempotency-Key`. If reporter authentication is configured it also sends the opaque session in
+`X-MBIssue-Reporter-Session`; never in the request body. The backend validates both sessions, owns provider OAuth
+credentials and routing, creates the issue, and uploads selected screenshots. The response contains `providerID`,
+`providerDisplayName`, `issueID`, `issueKey`, and `issueURL`.
 
 ## Remove the overlay
 

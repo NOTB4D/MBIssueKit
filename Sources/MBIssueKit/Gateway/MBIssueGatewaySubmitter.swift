@@ -18,33 +18,33 @@ final class MBIssueGatewaySubmitter {
     }
 
     private func submit(id: UUID) async {
-        guard let entry = store.entry(id: id), entry.jiraStatus != .submitted else {
+        guard let entry = store.entry(id: id), entry.submissionStatus != .submitted else {
             return
         }
-        store.updateJiraState(id: id, status: .submitting, submission: entry.jiraSubmission)
+        store.updateSubmissionState(id: id, status: .submitting, submission: entry.submission)
         do {
             let submission = try await client.submit(
                 entry: entry,
                 screenshotURLs: store.screenshotURLs(for: entry)
             )
-            store.updateJiraState(
+            store.updateSubmissionState(
                 id: id,
                 status: .submitted,
                 submission: submission,
-                message: "\(submission.issueKey) created in Jira."
+                message: "\(submission.issueKey) created in \(submission.providerDisplayName)."
             )
         } catch is CancellationError {
-            store.updateJiraState(
+            store.updateSubmissionState(
                 id: id,
                 status: .failed,
-                submission: store.entry(id: id)?.jiraSubmission,
+                submission: store.entry(id: id)?.submission,
                 message: "Submission was cancelled."
             )
         } catch {
-            store.updateJiraState(
+            store.updateSubmissionState(
                 id: id,
                 status: .failed,
-                submission: store.entry(id: id)?.jiraSubmission,
+                submission: store.entry(id: id)?.submission,
                 message: error.localizedDescription
             )
         }
