@@ -4,6 +4,7 @@ import Foundation
 @MainActor
 protocol MBIssueWebAuthorizing: AnyObject {
     func authorize(at url: URL, callbackURLScheme: String) async throws
+    func handleOpenURL(_ url: URL) -> Bool
 }
 
 enum MBIssueReporterConnectionState: Equatable {
@@ -135,6 +136,12 @@ final class MBIssueReporterConnectionController: ObservableObject {
         } catch {
             state = .failed(provider, error.localizedDescription)
         }
+    }
+
+    /// Completes an authorization whose custom callback was delivered directly
+    /// to the host application instead of the active web authentication session.
+    func handleOpenURL(_ url: URL) -> Bool {
+        webAuthorizer?.handleOpenURL(url) ?? false
     }
 
     private var isBusy: Bool {

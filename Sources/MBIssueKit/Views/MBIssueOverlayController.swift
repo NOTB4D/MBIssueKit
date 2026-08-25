@@ -144,6 +144,10 @@
             isInstalled = false
         }
 
+        func handleOpenURL(_ url: URL) -> Bool {
+            reporterConnectionController.handleOpenURL(url)
+        }
+
         private func presentComposerContent(
             capturedImage: UIImage? = nil,
             technicalContext: MBIssueTechnicalContext? = nil

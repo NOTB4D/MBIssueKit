@@ -50,6 +50,22 @@
             }
         }
 
+        func handleOpenURL(_ url: URL) -> Bool {
+            guard continuation != nil,
+                  url.scheme?.lowercased() == expectedCallbackScheme
+            else {
+                return false
+            }
+
+            // Some identity-provider handoffs return the custom callback directly
+            // to the host app instead of to ASWebAuthenticationSession. Resume the
+            // same in-memory authorization and then dismiss the orphaned browser.
+            let session = activeSession
+            finish(result: .success(()))
+            session?.cancel()
+            return true
+        }
+
         private func finish(callbackURL: URL?, error: Error?) {
             if let authenticationError = error as? ASWebAuthenticationSessionError,
                authenticationError.code == .canceledLogin {

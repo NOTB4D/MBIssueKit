@@ -87,6 +87,42 @@ struct MBIssueReporterConnectionControllerTests {
         #expect(controller.state == .disconnected(provider))
         #expect(await gateway.disconnectCount == 1)
     }
+
+    @Test("A callback delivered directly to the host app completes authorization")
+    func completesAuthorizationFromHostCallback() async throws {
+        let provider = MBIssueTrackerProvider(
+            id: "provider",
+            displayName: "Tracker",
+            destinationName: "Board",
+            requiresReporterAuthorization: true
+        )
+        let reporter = MBIssueReporterIdentity(accountID: "account", displayName: "QA User")
+        let gateway = GatewayStub(
+            initialConnection: .init(provider: provider, reporter: nil),
+            completedConnection: .init(provider: provider, reporter: reporter)
+        )
+        let webAuthorizer = CallbackDrivenWebAuthorizerStub()
+        let controller = MBIssueReporterConnectionController(
+            gateway: gateway,
+            callbackURLScheme: "sonex-mbissue",
+            webAuthorizer: webAuthorizer
+        )
+
+        await controller.refresh()
+        let connectionTask = Task { await controller.connect() }
+        while !webAuthorizer.isAwaitingCallback {
+            await Task.yield()
+        }
+
+        let unrelatedURL = try #require(URL(string: "sonex://oauth-complete"))
+        let callbackURL = try #require(URL(string: "sonex-mbissue://oauth-complete"))
+        #expect(controller.handleOpenURL(unrelatedURL) == false)
+        #expect(controller.handleOpenURL(callbackURL))
+        await connectionTask.value
+
+        #expect(controller.state == .connected(.init(provider: provider, reporter: reporter)))
+        #expect(await gateway.completionCount == 1)
+    }
 }
 
 private actor GatewayStub: MBIssueReportingGateway {
@@ -148,5 +184,37 @@ private final class WebAuthorizerStub: MBIssueWebAuthorizing {
         openedURL = url
         self.callbackURLScheme = callbackURLScheme
         try result.get()
+    }
+
+    func handleOpenURL(_: URL) -> Bool {
+        false
+    }
+}
+
+@MainActor
+private final class CallbackDrivenWebAuthorizerStub: MBIssueWebAuthorizing {
+    private var callbackURLScheme: String?
+    private var continuation: CheckedContinuation<Void, Error>?
+
+    var isAwaitingCallback: Bool {
+        continuation != nil
+    }
+
+    func authorize(at _: URL, callbackURLScheme: String) async throws {
+        self.callbackURLScheme = callbackURLScheme
+        try await withCheckedThrowingContinuation { continuation in
+            self.continuation = continuation
+        }
+    }
+
+    func handleOpenURL(_ url: URL) -> Bool {
+        guard url.scheme?.lowercased() == callbackURLScheme,
+              let continuation
+        else {
+            return false
+        }
+        self.continuation = nil
+        continuation.resume()
+        return true
     }
 }

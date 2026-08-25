@@ -59,6 +59,17 @@ Forward a shake notification to ``MBIssueKit/toggle(referenceWindow:)``:
 MBIssueKit.toggle()
 ```
 
+Forward custom URL callbacks before the host application's own deep-link router.
+This fallback is required when an identity-provider handoff returns directly to
+the app instead of completing the system web authentication session:
+
+```swift
+.onOpenURL { url in
+    guard !MBIssueKit.handleOpenURL(url) else { return }
+    appDeepLinkRouter.open(url)
+}
+```
+
 This only shows or hides the floating bar. The composer opens when the user chooses Report on that bar.
 
 `environment` and `additionalContext` are non-secret values included in the technical context shown to the user and
