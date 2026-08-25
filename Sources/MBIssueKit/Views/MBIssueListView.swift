@@ -2,7 +2,7 @@
     import SwiftUI
 
     struct MBIssueListView: View {
-        let projectKey: String
+        let destinationName: String
         let onClose: () -> Void
         let onNewIssue: () -> Void
         let onRetry: (UUID) -> Void
@@ -11,6 +11,7 @@
         let onExport: ([MBIssueEntry]) -> Void
 
         @EnvironmentObject private var store: MBIssueStore
+        @EnvironmentObject private var reporterConnection: MBIssueReporterConnectionController
         @State private var deleteTarget: MBIssueEntry?
         @State private var detailEntry: MBIssueEntry?
         @State private var showDeleteAllConfirmation = false
@@ -20,6 +21,9 @@
         var body: some View {
             VStack(spacing: 0) {
                 header
+                MBIssueReporterConnectionCard(controller: reporterConnection)
+                    .padding(.horizontal, 16)
+                    .padding(.top, 14)
                 if store.entries.isEmpty {
                     emptyState
                 } else {
@@ -50,7 +54,7 @@
             .alert(item: $deleteTarget) { entry in
                 Alert(
                     title: Text("Delete this report?"),
-                    message: Text("The local report and its screenshots will be removed. A Jira task that already exists is not deleted."),
+                    message: Text("The local report and its screenshots will be removed. A remote task that already exists is not deleted."),
                     primaryButton: .destructive(Text("Delete")) { store.delete(entry) },
                     secondaryButton: .cancel()
                 )
@@ -59,7 +63,7 @@
                 Button("Delete all", role: .destructive) { store.deleteAll() }
                 Button("Cancel", role: .cancel) {}
             } message: {
-                Text("Existing Jira tasks are not deleted.")
+                Text("Existing remote tasks are not deleted.")
             }
             .onChange(of: store.entries) { entries in
                 let eligibleIDs = MBIssueBatchSelection.eligibleIDs(in: entries)
@@ -68,6 +72,7 @@
                     isSelecting = false
                 }
             }
+            .task { await reporterConnection.refresh() }
         }
 
         private var header: some View {
@@ -117,7 +122,7 @@
                         Text("Issue reports")
                             .font(.headline)
                             .foregroundColor(MBIssueTheme.primaryText)
-                        Text("Jira project \(projectKey)")
+                        Text(reporterConnection.state.provider?.destinationName ?? destinationName)
                             .font(.caption)
                             .foregroundColor(MBIssueTheme.secondaryText)
                     }
@@ -133,7 +138,7 @@
                         }
                         .foregroundColor(MBIssueTheme.secondaryText)
                         .disabled(eligibleIDs.isEmpty)
-                        .accessibilityLabel("Select reports to create in Jira")
+                        .accessibilityLabel("Select reports to create in the issue tracker")
                         .accessibilityIdentifier("mbissue.select")
 
                         Menu {
@@ -208,7 +213,7 @@
 
         private func issueCard(_ entry: MBIssueEntry) -> some View {
             HStack(spacing: 0) {
-                statusColor(entry.jiraStatus)
+                statusColor(entry.submissionStatus)
                     .frame(width: 3)
 
                 if isSelecting {
@@ -240,7 +245,7 @@
                         if !entry.screenshotFileNames.isEmpty {
                             Label("\(entry.screenshotFileNames.count)", systemImage: "photo")
                         }
-                        if let key = entry.jiraSubmission?.issueKey {
+                        if let key = entry.submission?.issueKey {
                             Text(key)
                                 .font(.caption.weight(.semibold))
                                 .foregroundColor(MBIssueTheme.accent)
@@ -249,10 +254,10 @@
                     .font(.caption)
                     .foregroundColor(MBIssueTheme.tertiaryText)
 
-                    if let message = entry.jiraMessage {
+                    if let message = entry.submissionMessage {
                         Text(message)
                             .font(.caption)
-                            .foregroundColor(entry.jiraStatus == .failed ? MBIssueTheme.failure : MBIssueTheme.secondaryText)
+                            .foregroundColor(entry.submissionStatus == .failed ? MBIssueTheme.failure : MBIssueTheme.secondaryText)
                             .fixedSize(horizontal: false, vertical: true)
                     }
 
@@ -270,8 +275,9 @@
                                     onRetry(entry.id)
                                 }
                             }
-                            if let url = entry.jiraSubmission?.issueURL {
-                                smallAction("Open Jira", systemImage: "arrow.up.right", color: MBIssueTheme.success) {
+                            if let submission = entry.submission {
+                                smallAction("Open \(submission.providerDisplayName)", systemImage: "arrow.up.right", color: MBIssueTheme.success) {
+                                    let url = submission.issueURL
                                     onOpen(url)
                                 }
                             }
@@ -323,7 +329,7 @@
                 Button(action: submitSelection) {
                     HStack(spacing: 9) {
                         Image(systemName: "arrow.up.right.square.fill")
-                        Text("Create Selected in Jira")
+                        Text("Create Selected")
                         Text("\(batchSelection.selectedIDs.count)")
                             .font(.caption.bold().monospacedDigit())
                             .foregroundColor(.black)
@@ -335,14 +341,14 @@
                     .foregroundColor(.black)
                     .frame(maxWidth: .infinity)
                     .frame(height: 52)
-                    .background(batchSelection.isEmpty ? MBIssueTheme.elevatedSurface : MBIssueTheme.accent)
+                    .background(isBatchSubmissionEnabled ? MBIssueTheme.accent : MBIssueTheme.elevatedSurface)
                     .clipShape(RoundedRectangle(cornerRadius: 15, style: .continuous))
                 }
                 .buttonStyle(.plain)
-                .disabled(batchSelection.isEmpty)
+                .disabled(!isBatchSubmissionEnabled)
                 .accessibilityIdentifier("mbissue.submit-selected")
 
-                Text("Each selected report creates a separate Jira task. Failed reports stay retryable.")
+                Text(batchSubmissionHint)
                     .font(.caption2)
                     .foregroundColor(MBIssueTheme.tertiaryText)
                     .multilineTextAlignment(.center)
@@ -356,23 +362,23 @@
 
         private func statusBadge(_ entry: MBIssueEntry) -> some View {
             HStack(spacing: 5) {
-                if entry.jiraStatus == .submitting {
+                if entry.submissionStatus == .submitting {
                     ProgressView()
                         .progressViewStyle(.circular)
                         .scaleEffect(0.65)
                 } else {
                     Circle()
-                        .fill(statusColor(entry.jiraStatus))
+                        .fill(statusColor(entry.submissionStatus))
                         .frame(width: 6, height: 6)
                 }
-                Text(statusTitle(entry.jiraStatus).uppercased())
+                Text(statusTitle(entry.submissionStatus).uppercased())
                     .font(.system(size: 9, weight: .bold, design: .rounded))
                     .tracking(0.6)
             }
-            .foregroundColor(statusColor(entry.jiraStatus))
+            .foregroundColor(statusColor(entry.submissionStatus))
             .padding(.horizontal, 9)
             .frame(height: 26)
-            .background(statusColor(entry.jiraStatus).opacity(0.12))
+            .background(statusColor(entry.submissionStatus).opacity(0.12))
             .clipShape(Capsule())
         }
 
@@ -406,7 +412,7 @@
                 Text("No issue reports yet")
                     .font(.title3.weight(.bold))
                     .foregroundColor(MBIssueTheme.primaryText)
-                Text("Create a focused Jira task with visible technical context and without application logs.")
+                Text("Create a focused task with visible technical context and without application logs.")
                     .font(.subheadline)
                     .foregroundColor(MBIssueTheme.secondaryText)
                     .multilineTextAlignment(.center)
@@ -429,15 +435,15 @@
         }
 
         private var pendingCount: Int {
-            store.entries.filter { $0.jiraStatus == .notSubmitted || $0.jiraStatus == .submitting }.count
+            store.entries.filter { $0.submissionStatus == .notSubmitted || $0.submissionStatus == .submitting }.count
         }
 
         private var submittedCount: Int {
-            store.entries.filter { $0.jiraStatus == .submitted }.count
+            store.entries.filter { $0.submissionStatus == .submitted }.count
         }
 
         private var failedCount: Int {
-            store.entries.filter { $0.jiraStatus == .failed }.count
+            store.entries.filter { $0.submissionStatus == .failed }.count
         }
 
         private var eligibleIDs: Set<UUID> {
@@ -456,7 +462,7 @@
             if selected {
                 return "checkmark.circle.fill"
             }
-            switch entry.jiraStatus {
+            switch entry.submissionStatus {
             case .submitted: return "checkmark.seal.fill"
             case .submitting: return "hourglass.circle.fill"
             case .notSubmitted, .failed: return "circle"
@@ -467,14 +473,14 @@
             if selected {
                 return MBIssueTheme.accent
             }
-            return entry.jiraStatus == .submitted ? MBIssueTheme.success : MBIssueTheme.tertiaryText
+            return entry.submissionStatus == .submitted ? MBIssueTheme.success : MBIssueTheme.tertiaryText
         }
 
         private func selectionHint(for entry: MBIssueEntry) -> String {
-            switch entry.jiraStatus {
+            switch entry.submissionStatus {
             case .notSubmitted, .failed: "Available for submission"
             case .submitting: "Submission in progress"
-            case .submitted: "Already created in Jira"
+            case .submitted: "Already created in the issue tracker"
             }
         }
 
@@ -487,12 +493,23 @@
             endSelection()
         }
 
+        private var isBatchSubmissionEnabled: Bool {
+            !batchSelection.isEmpty && reporterConnection.state.canSubmit
+        }
+
+        private var batchSubmissionHint: String {
+            if reporterConnection.state.canSubmit {
+                return "Each selected report creates a separate task. Failed reports stay retryable."
+            }
+            return "Connect a verified reporter account before submitting the selected reports."
+        }
+
         private func endSelection() {
             batchSelection.clear()
             isSelecting = false
         }
 
-        private func statusColor(_ status: MBIssueEntry.JiraStatus) -> Color {
+        private func statusColor(_ status: MBIssueSubmissionStatus) -> Color {
             switch status {
             case .notSubmitted, .submitting: MBIssueTheme.pending
             case .submitted: MBIssueTheme.success
@@ -500,7 +517,7 @@
             }
         }
 
-        private func statusTitle(_ status: MBIssueEntry.JiraStatus) -> String {
+        private func statusTitle(_ status: MBIssueSubmissionStatus) -> String {
             switch status {
             case .notSubmitted: "Pending"
             case .submitting: "Sending"
@@ -528,7 +545,7 @@
     #if DEBUG
         #Preview("Issue list") {
             MBIssueListView(
-                projectKey: "MOB",
+                destinationName: "MOB",
                 onClose: {},
                 onNewIssue: {},
                 onRetry: { _ in },
@@ -543,14 +560,16 @@
                     title: "Checkout button is unresponsive",
                     description: "Tapping Continue does not move to the payment step.",
                     screenshotFileNames: ["capture.png"],
-                    jiraStatus: .submitted,
-                    jiraSubmission: .init(
+                    submissionStatus: .submitted,
+                    submission: .init(
+                        providerID: "issue-tracker",
+                        providerDisplayName: "Issue tracker",
                         issueID: "10042",
                         issueKey: "MOB-42",
                         issueURL: URL(string: "https://example.atlassian.net/browse/MOB-42")!,
                         createdAt: Date()
                     ),
-                    jiraMessage: "MOB-42 created in Jira."
+                    submissionMessage: "MOB-42 created in Issue tracker."
                 ),
                 MBIssueEntry(
                     id: UUID(),
@@ -558,16 +577,19 @@
                     title: "Basket total is stale",
                     description: "Removing a product does not refresh the total.",
                     screenshotFileNames: [],
-                    jiraStatus: .failed,
-                    jiraMessage: "Network error: The connection was lost."
+                    submissionStatus: .failed,
+                    submissionMessage: "Network error: The connection was lost."
                 ),
             ]))
+            .environmentObject(MBIssueReporterConnectionController(
+                managedProviderDisplayName: "Preview tracker"
+            ))
             .preferredColorScheme(.dark)
         }
 
         #Preview("Empty issue list") {
             MBIssueListView(
-                projectKey: "MOB",
+                destinationName: "MOB",
                 onClose: {},
                 onNewIssue: {},
                 onRetry: { _ in },
@@ -576,6 +598,9 @@
                 onExport: { _ in }
             )
             .environmentObject(MBIssueStore.preview())
+            .environmentObject(MBIssueReporterConnectionController(
+                managedProviderDisplayName: "Preview tracker"
+            ))
             .preferredColorScheme(.dark)
         }
     #endif

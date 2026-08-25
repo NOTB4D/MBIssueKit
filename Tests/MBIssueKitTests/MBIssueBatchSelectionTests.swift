@@ -45,14 +45,14 @@ struct MBIssueBatchSelectionTests {
         #expect(selection.selectedIDs == [second])
     }
 
-    private func entry(status: MBIssueEntry.JiraStatus) -> MBIssueEntry {
+    private func entry(status: MBIssueSubmissionStatus) -> MBIssueEntry {
         MBIssueEntry(
             id: UUID(),
             createdAt: Date(),
             title: "Title",
             description: "Description",
             screenshotFileNames: [],
-            jiraStatus: status
+            submissionStatus: status
         )
     }
 }

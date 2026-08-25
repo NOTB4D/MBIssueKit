@@ -18,12 +18,14 @@ struct MBIssueGatewayRequestBuilderTests {
                 .init(fileName: "screen.png", mimeType: "image/png", data: Data("image".utf8)),
             ],
             configuration: configuration,
-            accessToken: "sonex-access-token"
+            accessToken: "sonex-access-token",
+            reporterSessionToken: "reporter-session-token"
         )
 
         #expect(request.url?.absoluteString == "https://api.sonex.example/issue-reporting/api/v1/reports")
         #expect(request.httpMethod == "POST")
         #expect(request.value(forHTTPHeaderField: "Authorization") == "Bearer sonex-access-token")
+        #expect(request.value(forHTTPHeaderField: "X-MBIssue-Reporter-Session") == "Bearer reporter-session-token")
         #expect(request.value(forHTTPHeaderField: "Idempotency-Key") == entry.id.uuidString)
         #expect(request.value(forHTTPHeaderField: "Content-Type")?.hasPrefix("multipart/form-data; boundary=") == true)
 
@@ -37,6 +39,7 @@ struct MBIssueGatewayRequestBuilderTests {
         #expect(body.contains("\"severity\":\"major\""))
         #expect(!body.localizedCaseInsensitiveContains("apiToken"))
         #expect(!body.localizedCaseInsensitiveContains("jira"))
+        #expect(!body.contains("reporter-session-token"))
     }
 
     private func fixtureEntry() throws -> MBIssueEntry {

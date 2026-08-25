@@ -1,7 +1,7 @@
 import Combine
 import Foundation
 
-/// Stores issue drafts and screenshots locally until Jira submission succeeds.
+/// Stores issue drafts and screenshots locally until provider submission succeeds.
 @MainActor
 public final class MBIssueStore: ObservableObject {
     public static let shared = MBIssueStore()
@@ -81,20 +81,20 @@ public final class MBIssueStore: ObservableObject {
         return entry.screenshotFileNames.map { directory.appendingPathComponent($0) }
     }
 
-    func updateJiraState(
+    func updateSubmissionState(
         id: UUID,
-        status: MBIssueEntry.JiraStatus,
-        submission: MBIssueEntry.JiraSubmission? = nil,
+        status: MBIssueSubmissionStatus,
+        submission: MBIssueSubmissionReceipt? = nil,
         message: String? = nil
     ) {
         guard let index = entries.firstIndex(where: { $0.id == id }) else {
             return
         }
-        entries[index].jiraStatus = status
+        entries[index].submissionStatus = status
         if let submission {
-            entries[index].jiraSubmission = submission
+            entries[index].submission = submission
         }
-        entries[index].jiraMessage = message
+        entries[index].submissionMessage = message
         persist()
     }
 

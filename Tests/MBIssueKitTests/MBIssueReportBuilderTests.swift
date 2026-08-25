@@ -14,7 +14,7 @@ struct MBIssueReportBuilderTests {
             severity: .major,
             technicalContext: .fixture,
             screenshotFileNames: ["capture.png"],
-            jiraStatus: .notSubmitted
+            submissionStatus: .notSubmitted
         )
 
         let markdown = MBIssueReportBuilder.markdown(for: [entry])

@@ -56,5 +56,15 @@ public enum MBIssueKit {
         public static var isInstalled: Bool {
             MBIssueOverlayController.shared.isInstalled
         }
+
+        /// Forwards a custom URL callback delivered directly to the host app.
+        ///
+        /// Call this before the host application's own deep-link router. A `true`
+        /// result means an active reporter authorization consumed the URL.
+        @discardableResult
+        @MainActor
+        public static func handleOpenURL(_ url: URL) -> Bool {
+            MBIssueOverlayController.shared.handleOpenURL(url)
+        }
     #endif
 }

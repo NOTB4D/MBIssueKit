@@ -20,7 +20,7 @@
                             MBIssueTechnicalContextCard(context: context, initiallyExpanded: true)
                         }
                         screenshotsCard
-                        jiraCard
+                        submissionCard
                     }
                     .padding(16)
                 }
@@ -118,14 +118,14 @@
             }
         }
 
-        private var jiraCard: some View {
+        private var submissionCard: some View {
             MBIssueCard {
                 VStack(alignment: .leading, spacing: 11) {
-                    Label("Jira", systemImage: "arrow.up.right.square")
+                    Label(entry.submission?.providerDisplayName ?? "Issue tracker", systemImage: "arrow.up.right.square")
                         .font(.subheadline.weight(.semibold))
                         .foregroundColor(MBIssueTheme.primaryText)
 
-                    if let submission = entry.jiraSubmission {
+                    if let submission = entry.submission {
                         detailRow("Issue", submission.issueKey)
                         detailRow("Created", submission.createdAt.formatted(date: .abbreviated, time: .shortened))
                         Button {
@@ -141,7 +141,7 @@
                         }
                         .buttonStyle(.plain)
                     } else {
-                        Text(entry.jiraMessage ?? "This report has not been created in Jira yet.")
+                        Text(entry.submissionMessage ?? "This report has not been created in the issue tracker yet.")
                             .font(.subheadline)
                             .foregroundColor(MBIssueTheme.secondaryText)
                     }
@@ -182,7 +182,7 @@
         }
 
         private var statusColor: Color {
-            switch entry.jiraStatus {
+            switch entry.submissionStatus {
             case .notSubmitted, .submitting: MBIssueTheme.pending
             case .submitted: MBIssueTheme.success
             case .failed: MBIssueTheme.failure
@@ -190,16 +190,16 @@
         }
 
         private var statusTitle: String {
-            switch entry.jiraStatus {
+            switch entry.submissionStatus {
             case .notSubmitted: "Pending submission"
-            case .submitting: "Sending to Jira"
-            case .submitted: "Created in Jira"
+            case .submitting: "Sending to issue tracker"
+            case .submitted: "Created in issue tracker"
             case .failed: "Submission failed"
             }
         }
 
         private var statusIcon: String {
-            switch entry.jiraStatus {
+            switch entry.submissionStatus {
             case .notSubmitted: "clock"
             case .submitting: "arrow.triangle.2.circlepath"
             case .submitted: "checkmark.circle.fill"

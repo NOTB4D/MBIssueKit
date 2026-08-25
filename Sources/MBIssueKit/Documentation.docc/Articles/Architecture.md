@@ -1,6 +1,6 @@
 # Architecture
 
-Understand how reports move from the overlay through the host backend to Jira.
+Understand how reports move from the overlay through a host backend to the selected issue tracker.
 
 ## Report flow
 
@@ -8,16 +8,19 @@ Understand how reports move from the overlay through the host backend to Jira.
 2. The composer accepts a separate title and description, severity, captured technical context, and optional screenshots.
 3. ``MBIssueStore`` validates and persists the report locally. Saving a draft stops here.
 4. The user can submit one report immediately or select multiple pending/failed reports from the local list.
-5. The gateway client authenticates each report to the host backend with the user's current host-session token.
-6. The backend maps the report to its server-owned Jira project, issue type, labels, and priority configuration.
-7. The backend creates one Jira issue per local report and uploads that report's selected screenshots.
-8. Each local entry independently records its Jira key and URL. Failed work remains available for retry without
+5. When required, the reporter authorizes their own tracker identity through the system browser. MBIssueKit retains only
+   a revocable backend session in a device-only Keychain item; provider OAuth tokens never reach iOS.
+6. The gateway client authenticates each report to the host backend with the current host and reporter sessions.
+7. The backend's selected provider adapter maps the report to server-owned project/board, work-item type, labels, and
+   priority configuration.
+8. The backend creates one provider issue per local report and uploads that report's selected screenshots.
+9. Each local entry independently records its provider ID, issue key, and URL. Failed work remains available for retry without
    resubmitting entries that already succeeded.
 
 ## Submission safety
 
 Every request includes the report UUID as an `Idempotency-Key`. A batch is a client-side sequence of independent
-requests rather than a multi-issue Jira payload. The backend records each created Jira issue before uploading
+requests rather than a provider-specific multi-issue payload. The backend records each created issue before uploading
 attachments, so a retry continues against the same task instead of creating another task.
 
 ## Data boundary
@@ -32,11 +35,21 @@ The package sends:
 
 Screenshots selected by the user are sent as attachments. No application logs, network payloads, credentials, or
 state-management actions are collected. A ZIP export contains Markdown, JSON metadata, and local screenshots, but never
-contains Jira credentials. Jira project routing, labels, native priority names, and API credentials exist only on the
-server.
+contains provider credentials. Project/board routing, labels, native priority names, and OAuth/API credentials exist
+only on the server.
+
+## Dependency boundaries
+
+- Views depend on the reporter connection controller and report store, not URLSession or a concrete tracker.
+- The connection controller depends on the `MBIssueReportingGateway` and `MBIssueWebAuthorizing` protocols.
+- The gateway speaks only provider-neutral DTOs and persists through `MBIssueReporterSessionStoring`.
+- The host backend selects concrete Jira, Azure DevOps, or future adapters behind its own provider protocol.
+
+Changing boards is deployment configuration. Adding a tracker requires a backend adapter and registration in the
+backend composition root; MBIssueKit's domain, UI, persistence, and public configuration remain unchanged.
 
 ## Test strategy
 
 The package uses Swift Testing rather than XCTest. Domain validation, gateway configuration normalization, payload
-mapping, authentication headers, attachment requests, and persistence recovery are covered with deterministic tests. New
+mapping, authentication headers, provider switching, attachment requests, and persistence recovery are covered with deterministic tests. New
 behavior should begin with a failing `@Test`, followed by the smallest implementation that makes it pass.

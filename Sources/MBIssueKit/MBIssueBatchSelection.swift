@@ -9,7 +9,7 @@ struct MBIssueBatchSelection: Equatable, Sendable {
 
     static func eligibleIDs(in entries: [MBIssueEntry]) -> Set<UUID> {
         Set(entries.compactMap { entry in
-            switch entry.jiraStatus {
+            switch entry.submissionStatus {
             case .notSubmitted, .failed:
                 entry.id
             case .submitting, .submitted:
