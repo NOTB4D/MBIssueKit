@@ -58,7 +58,7 @@ enum MBIssueGatewayRequestBuilder {
         for screenshot in screenshots {
             let fileName = safeFileName(screenshot.fileName)
             body.appendUTF8("--\(boundary)\r\n")
-            body.appendUTF8("Content-Disposition: form-data; name=\"attachments\"; filename=\"\(fileName)\"\r\n")
+            body.appendUTF8("Content-Disposition: form-data; name=\"attachments[]\"; filename=\"\(fileName)\"\r\n")
             body.appendUTF8("Content-Type: \(screenshot.mimeType)\r\n\r\n")
             body.append(screenshot.data)
             body.appendUTF8("\r\n")

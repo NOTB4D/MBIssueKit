@@ -29,7 +29,9 @@ struct MBIssueGatewayRequestBuilderTests {
 
         let body = try #require(request.httpBody.flatMap { String(data: $0, encoding: .utf8) })
         #expect(body.contains("name=\"report\""))
-        #expect(body.contains("name=\"attachments\"; filename=\"screen.png\""))
+        // MultipartKit/Vapor requires [] even when the array contains one file.
+        #expect(body.contains("name=\"attachments[]\"; filename=\"screen.png\""))
+        #expect(!body.contains("name=\"attachments\"; filename="))
         #expect(body.contains("Gateway title"))
         #expect(body.contains("Gateway description"))
         #expect(body.contains("\"severity\":\"major\""))
