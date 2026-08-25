@@ -6,9 +6,9 @@ Create detailed, reproducible Jira tasks from an iOS app without collecting appl
 
 MBIssueKit installs a draggable overlay above a host application. A user can enter a dedicated title and description,
 choose severity, review the technical context, annotate an automatically captured screenshot, add images from Photos,
-and create a Jira task through the host application's backend. Reports are persisted locally before submission so
-failed requests remain retryable. Local
-reports have a detail screen and can be exported as a ZIP archive.
+and create a Jira task through the host application's backend. Reports can be saved locally as drafts and later selected
+for batch submission. Every selected report creates a separate Jira task, while failures remain independently retryable.
+Local reports have a detail screen and can be exported as a ZIP archive.
 
 The report combines the user's text with the technical context shown in the composer. MBIssueKit does not
 collect application logs, network payloads, credentials, or state-management actions such as TCA actions.

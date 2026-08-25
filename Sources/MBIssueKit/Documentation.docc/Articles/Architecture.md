@@ -6,16 +6,19 @@ Understand how reports move from the overlay through the host backend to Jira.
 
 1. The overlay captures the visible host application while excluding its own window.
 2. The composer accepts a separate title and description, severity, captured technical context, and optional screenshots.
-3. ``MBIssueStore`` validates and persists the report locally.
-4. The gateway client authenticates to the host backend with the user's current host-session token.
-5. The backend maps the report to its server-owned Jira project, issue type, labels, and priority configuration.
-6. The backend creates the Jira issue and uploads the selected screenshots.
-7. The local entry records its Jira key and URL. Failed work remains available for retry.
+3. ``MBIssueStore`` validates and persists the report locally. Saving a draft stops here.
+4. The user can submit one report immediately or select multiple pending/failed reports from the local list.
+5. The gateway client authenticates each report to the host backend with the user's current host-session token.
+6. The backend maps the report to its server-owned Jira project, issue type, labels, and priority configuration.
+7. The backend creates one Jira issue per local report and uploads that report's selected screenshots.
+8. Each local entry independently records its Jira key and URL. Failed work remains available for retry without
+   resubmitting entries that already succeeded.
 
 ## Submission safety
 
-Every request includes the report UUID as an `Idempotency-Key`. The backend records the created Jira issue before
-uploading attachments, so a retry continues against the same task instead of creating another task.
+Every request includes the report UUID as an `Idempotency-Key`. A batch is a client-side sequence of independent
+requests rather than a multi-issue Jira payload. The backend records each created Jira issue before uploading
+attachments, so a retry continues against the same task instead of creating another task.
 
 ## Data boundary
 

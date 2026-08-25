@@ -7,6 +7,7 @@
         let projectKey: String
         let technicalContext: MBIssueTechnicalContext
         let onCancel: () -> Void
+        let onSaveDraft: (MBIssueDraft, [UIImage]) throws -> Void
         let onCreate: (MBIssueDraft, [UIImage]) throws -> Void
 
         @State private var title = ""
@@ -23,12 +24,14 @@
             projectKey: String,
             technicalContext: MBIssueTechnicalContext,
             onCancel: @escaping () -> Void,
+            onSaveDraft: @escaping (MBIssueDraft, [UIImage]) throws -> Void,
             onCreate: @escaping (MBIssueDraft, [UIImage]) throws -> Void
         ) {
             self.capturedImage = capturedImage
             self.projectKey = projectKey
             self.technicalContext = technicalContext
             self.onCancel = onCancel
+            self.onSaveDraft = onSaveDraft
             self.onCreate = onCreate
             _screenshots = State(initialValue: capturedImage.map { [Screenshot(image: $0)] } ?? [])
         }
@@ -341,23 +344,45 @@
 
         private var actionArea: some View {
             VStack(spacing: 8) {
-                Button(action: create) {
-                    HStack(spacing: 8) {
-                        Image(systemName: "arrow.up.right.square.fill")
-                        Text("Create Jira Task")
+                HStack(spacing: 10) {
+                    Button(action: saveDraft) {
+                        HStack(spacing: 7) {
+                            Image(systemName: "tray.and.arrow.down.fill")
+                            Text("Save Draft")
+                        }
+                        .font(.subheadline.weight(.bold))
+                        .foregroundColor(isCreateEnabled ? MBIssueTheme.primaryText : MBIssueTheme.tertiaryText)
+                        .frame(maxWidth: .infinity)
+                        .frame(height: 52)
+                        .background(MBIssueTheme.elevatedSurface)
+                        .clipShape(RoundedRectangle(cornerRadius: 15, style: .continuous))
+                        .overlay {
+                            RoundedRectangle(cornerRadius: 15, style: .continuous)
+                                .stroke(MBIssueTheme.border, lineWidth: 1)
+                        }
                     }
-                    .font(.body.weight(.bold))
-                    .foregroundColor(.black)
-                    .frame(maxWidth: .infinity)
-                    .frame(height: 52)
-                    .background(isCreateEnabled ? MBIssueTheme.accent : MBIssueTheme.elevatedSurface)
-                    .clipShape(RoundedRectangle(cornerRadius: 15, style: .continuous))
-                }
-                .buttonStyle(.plain)
-                .disabled(!isCreateEnabled)
-                .accessibilityIdentifier("mbissue.create")
+                    .buttonStyle(.plain)
+                    .disabled(!isCreateEnabled)
+                    .accessibilityIdentifier("mbissue.save-draft")
 
-                Text("The report is saved locally first, then submitted to Jira.")
+                    Button(action: create) {
+                        HStack(spacing: 7) {
+                            Image(systemName: "arrow.up.right.square.fill")
+                            Text("Create Jira Task")
+                        }
+                        .font(.subheadline.weight(.bold))
+                        .foregroundColor(.black)
+                        .frame(maxWidth: .infinity)
+                        .frame(height: 52)
+                        .background(isCreateEnabled ? MBIssueTheme.accent : MBIssueTheme.elevatedSurface)
+                        .clipShape(RoundedRectangle(cornerRadius: 15, style: .continuous))
+                    }
+                    .buttonStyle(.plain)
+                    .disabled(!isCreateEnabled)
+                    .accessibilityIdentifier("mbissue.create")
+                }
+
+                Text("Save locally for a later batch, or create a separate Jira task now.")
                     .font(.caption2)
                     .foregroundColor(MBIssueTheme.tertiaryText)
             }
@@ -401,6 +426,14 @@
         }
 
         private func create() {
+            perform(onCreate)
+        }
+
+        private func saveDraft() {
+            perform(onSaveDraft)
+        }
+
+        private func perform(_ action: (MBIssueDraft, [UIImage]) throws -> Void) {
             do {
                 let draft = try MBIssueDraft(
                     title: title,
@@ -408,7 +441,7 @@
                     severity: severity,
                     technicalContext: technicalContext
                 ).validated()
-                try onCreate(draft, screenshots.map(\.image))
+                try action(draft, screenshots.map(\.image))
             } catch {
                 errorMessage = error.localizedDescription
             }
@@ -489,6 +522,7 @@
                     screenSize: "402 × 874 pt @3x"
                 ),
                 onCancel: {},
+                onSaveDraft: { _, _ in },
                 onCreate: { _, _ in }
             )
             .preferredColorScheme(.dark)

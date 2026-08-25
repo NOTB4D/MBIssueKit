@@ -6,6 +6,7 @@
         let onClose: () -> Void
         let onNewIssue: () -> Void
         let onRetry: (UUID) -> Void
+        let onSubmitSelected: ([UUID]) -> Void
         let onOpen: (URL) -> Void
         let onExport: ([MBIssueEntry]) -> Void
 
@@ -13,6 +14,8 @@
         @State private var deleteTarget: MBIssueEntry?
         @State private var detailEntry: MBIssueEntry?
         @State private var showDeleteAllConfirmation = false
+        @State private var isSelecting = false
+        @State private var batchSelection = MBIssueBatchSelection()
 
         var body: some View {
             VStack(spacing: 0) {
@@ -30,6 +33,9 @@
                         .padding(16)
                     }
                     .background(MBIssueTheme.background)
+                    if isSelecting {
+                        batchActionArea
+                    }
                 }
             }
             .background(MBIssueTheme.background.ignoresSafeArea())
@@ -55,60 +61,110 @@
             } message: {
                 Text("Existing Jira tasks are not deleted.")
             }
+            .onChange(of: store.entries) { entries in
+                let eligibleIDs = MBIssueBatchSelection.eligibleIDs(in: entries)
+                batchSelection.reconcile(eligibleIDs: eligibleIDs)
+                if isSelecting, eligibleIDs.isEmpty {
+                    isSelecting = false
+                }
+            }
         }
 
         private var header: some View {
             HStack(spacing: 12) {
-                Button(action: onClose) {
-                    Image(systemName: "xmark")
-                        .font(.system(size: 15, weight: .semibold))
-                        .frame(width: 36, height: 36)
-                        .background(MBIssueTheme.elevatedSurface)
-                        .clipShape(Circle())
-                }
-                .foregroundColor(MBIssueTheme.primaryText)
-                .accessibilityLabel("Close")
+                if isSelecting {
+                    Button {
+                        endSelection()
+                    } label: {
+                        Text("Cancel")
+                            .font(.subheadline.weight(.semibold))
+                    }
+                    .foregroundColor(MBIssueTheme.primaryText)
 
-                VStack(alignment: .leading, spacing: 2) {
-                    Text("Issue reports")
-                        .font(.headline)
-                        .foregroundColor(MBIssueTheme.primaryText)
-                    Text("Jira project \(projectKey)")
-                        .font(.caption)
+                    VStack(alignment: .leading, spacing: 2) {
+                        Text("Select reports")
+                            .font(.headline)
+                            .foregroundColor(MBIssueTheme.primaryText)
+                        Text("\(batchSelection.selectedIDs.count) of \(eligibleIDs.count) selected")
+                            .font(.caption)
+                            .foregroundColor(MBIssueTheme.secondaryText)
+                    }
+
+                    Spacer()
+
+                    Button(allEligibleAreSelected ? "Clear" : "Select all") {
+                        if allEligibleAreSelected {
+                            batchSelection.clear()
+                        } else {
+                            batchSelection.selectAll(eligibleIDs: eligibleIDs)
+                        }
+                    }
+                    .font(.subheadline.weight(.semibold))
+                    .foregroundColor(MBIssueTheme.accent)
+                    .accessibilityIdentifier("mbissue.select-all")
+                } else {
+                    Button(action: onClose) {
+                        Image(systemName: "xmark")
+                            .font(.system(size: 15, weight: .semibold))
+                            .frame(width: 36, height: 36)
+                            .background(MBIssueTheme.elevatedSurface)
+                            .clipShape(Circle())
+                    }
+                    .foregroundColor(MBIssueTheme.primaryText)
+                    .accessibilityLabel("Close")
+
+                    VStack(alignment: .leading, spacing: 2) {
+                        Text("Issue reports")
+                            .font(.headline)
+                            .foregroundColor(MBIssueTheme.primaryText)
+                        Text("Jira project \(projectKey)")
+                            .font(.caption)
+                            .foregroundColor(MBIssueTheme.secondaryText)
+                    }
+
+                    Spacer()
+
+                    if !store.entries.isEmpty {
+                        Button {
+                            isSelecting = true
+                        } label: {
+                            Image(systemName: "checkmark.circle")
+                                .frame(width: 36, height: 36)
+                        }
                         .foregroundColor(MBIssueTheme.secondaryText)
-                }
+                        .disabled(eligibleIDs.isEmpty)
+                        .accessibilityLabel("Select reports to create in Jira")
+                        .accessibilityIdentifier("mbissue.select")
 
-                Spacer()
-
-                if !store.entries.isEmpty {
-                    Button {
-                        onExport(store.entries)
-                    } label: {
-                        Image(systemName: "square.and.arrow.up")
-                            .frame(width: 36, height: 36)
+                        Menu {
+                            Button {
+                                onExport(store.entries)
+                            } label: {
+                                Label("Export all as ZIP", systemImage: "square.and.arrow.up")
+                            }
+                            Button(role: .destructive) {
+                                showDeleteAllConfirmation = true
+                            } label: {
+                                Label("Delete all local reports", systemImage: "trash")
+                            }
+                        } label: {
+                            Image(systemName: "ellipsis.circle")
+                                .frame(width: 36, height: 36)
+                        }
+                        .foregroundColor(MBIssueTheme.secondaryText)
+                        .accessibilityLabel("More report actions")
                     }
-                    .foregroundColor(MBIssueTheme.secondaryText)
-                    .accessibilityLabel("Export all reports as ZIP")
 
-                    Button {
-                        showDeleteAllConfirmation = true
-                    } label: {
-                        Image(systemName: "trash")
+                    Button(action: onNewIssue) {
+                        Image(systemName: "plus")
+                            .font(.system(size: 15, weight: .bold))
+                            .foregroundColor(.black)
                             .frame(width: 36, height: 36)
+                            .background(MBIssueTheme.accent)
+                            .clipShape(Circle())
                     }
-                    .foregroundColor(MBIssueTheme.secondaryText)
-                    .accessibilityLabel("Delete all local reports")
+                    .accessibilityLabel("Create a new issue")
                 }
-
-                Button(action: onNewIssue) {
-                    Image(systemName: "plus")
-                        .font(.system(size: 15, weight: .bold))
-                        .foregroundColor(.black)
-                        .frame(width: 36, height: 36)
-                        .background(MBIssueTheme.accent)
-                        .clipShape(Circle())
-                }
-                .accessibilityLabel("Create a new issue")
             }
             .padding(.horizontal, 16)
             .frame(height: 64)
@@ -155,6 +211,10 @@
                 statusColor(entry.jiraStatus)
                     .frame(width: 3)
 
+                if isSelecting {
+                    selectionControl(entry)
+                }
+
                 VStack(alignment: .leading, spacing: 12) {
                     HStack(alignment: .top, spacing: 10) {
                         VStack(alignment: .leading, spacing: 5) {
@@ -197,29 +257,37 @@
                     }
 
                     HStack(spacing: 10) {
-                        smallAction("Details", systemImage: "doc.text.magnifyingglass", color: MBIssueTheme.primaryText) {
-                            detailEntry = entry
-                        }
-                        if entry.jiraStatus == .notSubmitted || entry.jiraStatus == .failed {
-                            smallAction("Retry", systemImage: "arrow.clockwise", color: MBIssueTheme.accent) {
-                                onRetry(entry.id)
+                        if isSelecting {
+                            Text(selectionHint(for: entry))
+                                .font(.caption.weight(.semibold))
+                                .foregroundColor(isEligible(entry) ? MBIssueTheme.accent : MBIssueTheme.tertiaryText)
+                        } else {
+                            smallAction("Details", systemImage: "doc.text.magnifyingglass", color: MBIssueTheme.primaryText) {
+                                detailEntry = entry
                             }
-                        }
-                        if let url = entry.jiraSubmission?.issueURL {
-                            smallAction("Open Jira", systemImage: "arrow.up.right", color: MBIssueTheme.success) {
-                                onOpen(url)
+                            if isEligible(entry) {
+                                smallAction("Retry", systemImage: "arrow.clockwise", color: MBIssueTheme.accent) {
+                                    onRetry(entry.id)
+                                }
+                            }
+                            if let url = entry.jiraSubmission?.issueURL {
+                                smallAction("Open Jira", systemImage: "arrow.up.right", color: MBIssueTheme.success) {
+                                    onOpen(url)
+                                }
                             }
                         }
                         Spacer()
-                        Button {
-                            deleteTarget = entry
-                        } label: {
-                            Image(systemName: "trash")
-                                .font(.caption.weight(.semibold))
-                                .frame(width: 34, height: 30)
+                        if !isSelecting {
+                            Button {
+                                deleteTarget = entry
+                            } label: {
+                                Image(systemName: "trash")
+                                    .font(.caption.weight(.semibold))
+                                    .frame(width: 34, height: 30)
+                            }
+                            .foregroundColor(MBIssueTheme.tertiaryText)
+                            .accessibilityLabel("Delete \(entry.title)")
                         }
-                        .foregroundColor(MBIssueTheme.tertiaryText)
-                        .accessibilityLabel("Delete \(entry.title)")
                     }
                 }
                 .padding(15)
@@ -230,6 +298,60 @@
                 RoundedRectangle(cornerRadius: MBIssueTheme.cardRadius, style: .continuous)
                     .stroke(MBIssueTheme.border, lineWidth: 1)
             }
+        }
+
+        private func selectionControl(_ entry: MBIssueEntry) -> some View {
+            let eligible = isEligible(entry)
+            let selected = batchSelection.selectedIDs.contains(entry.id)
+            return Button {
+                batchSelection.toggle(entry.id, eligibleIDs: eligibleIDs)
+            } label: {
+                Image(systemName: selectionIcon(for: entry, selected: selected))
+                    .font(.system(size: 22, weight: .semibold))
+                    .foregroundColor(selectionColor(for: entry, selected: selected))
+                    .frame(width: 48, height: 54)
+                    .contentShape(Rectangle())
+            }
+            .buttonStyle(.plain)
+            .disabled(!eligible)
+            .accessibilityLabel(selected ? "Deselect \(entry.title)" : "Select \(entry.title)")
+            .accessibilityIdentifier("mbissue.select.\(entry.id.uuidString)")
+        }
+
+        private var batchActionArea: some View {
+            VStack(spacing: 7) {
+                Button(action: submitSelection) {
+                    HStack(spacing: 9) {
+                        Image(systemName: "arrow.up.right.square.fill")
+                        Text("Create Selected in Jira")
+                        Text("\(batchSelection.selectedIDs.count)")
+                            .font(.caption.bold().monospacedDigit())
+                            .foregroundColor(.black)
+                            .frame(minWidth: 24, minHeight: 24)
+                            .background(Color.black.opacity(0.12))
+                            .clipShape(Circle())
+                    }
+                    .font(.body.weight(.bold))
+                    .foregroundColor(.black)
+                    .frame(maxWidth: .infinity)
+                    .frame(height: 52)
+                    .background(batchSelection.isEmpty ? MBIssueTheme.elevatedSurface : MBIssueTheme.accent)
+                    .clipShape(RoundedRectangle(cornerRadius: 15, style: .continuous))
+                }
+                .buttonStyle(.plain)
+                .disabled(batchSelection.isEmpty)
+                .accessibilityIdentifier("mbissue.submit-selected")
+
+                Text("Each selected report creates a separate Jira task. Failed reports stay retryable.")
+                    .font(.caption2)
+                    .foregroundColor(MBIssueTheme.tertiaryText)
+                    .multilineTextAlignment(.center)
+            }
+            .padding(.horizontal, 16)
+            .padding(.top, 12)
+            .padding(.bottom, 8)
+            .background(MBIssueTheme.surface)
+            .overlay(alignment: .top) { MBIssueTheme.border.frame(height: 1) }
         }
 
         private func statusBadge(_ entry: MBIssueEntry) -> some View {
@@ -318,6 +440,58 @@
             store.entries.filter { $0.jiraStatus == .failed }.count
         }
 
+        private var eligibleIDs: Set<UUID> {
+            MBIssueBatchSelection.eligibleIDs(in: store.entries)
+        }
+
+        private var allEligibleAreSelected: Bool {
+            !eligibleIDs.isEmpty && batchSelection.selectedIDs == eligibleIDs
+        }
+
+        private func isEligible(_ entry: MBIssueEntry) -> Bool {
+            eligibleIDs.contains(entry.id)
+        }
+
+        private func selectionIcon(for entry: MBIssueEntry, selected: Bool) -> String {
+            if selected {
+                return "checkmark.circle.fill"
+            }
+            switch entry.jiraStatus {
+            case .submitted: return "checkmark.seal.fill"
+            case .submitting: return "hourglass.circle.fill"
+            case .notSubmitted, .failed: return "circle"
+            }
+        }
+
+        private func selectionColor(for entry: MBIssueEntry, selected: Bool) -> Color {
+            if selected {
+                return MBIssueTheme.accent
+            }
+            return entry.jiraStatus == .submitted ? MBIssueTheme.success : MBIssueTheme.tertiaryText
+        }
+
+        private func selectionHint(for entry: MBIssueEntry) -> String {
+            switch entry.jiraStatus {
+            case .notSubmitted, .failed: "Available for submission"
+            case .submitting: "Submission in progress"
+            case .submitted: "Already created in Jira"
+            }
+        }
+
+        private func submitSelection() {
+            let ids = store.entries.compactMap { entry in
+                batchSelection.selectedIDs.contains(entry.id) ? entry.id : nil
+            }
+            guard !ids.isEmpty else { return }
+            onSubmitSelected(ids)
+            endSelection()
+        }
+
+        private func endSelection() {
+            batchSelection.clear()
+            isSelecting = false
+        }
+
         private func statusColor(_ status: MBIssueEntry.JiraStatus) -> Color {
             switch status {
             case .notSubmitted, .submitting: MBIssueTheme.pending
@@ -358,6 +532,7 @@
                 onClose: {},
                 onNewIssue: {},
                 onRetry: { _ in },
+                onSubmitSelected: { _ in },
                 onOpen: { _ in },
                 onExport: { _ in }
             )
@@ -396,6 +571,7 @@
                 onClose: {},
                 onNewIssue: {},
                 onRetry: { _ in },
+                onSubmitSelected: { _ in },
                 onOpen: { _ in },
                 onExport: { _ in }
             )

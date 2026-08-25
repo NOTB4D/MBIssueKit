@@ -150,14 +150,16 @@
                 projectKey: configuration.gateway.displayName,
                 technicalContext: technicalContext,
                 onCancel: { [weak self] in self?.dismissPresented() },
+                onSaveDraft: { [weak self] draft, images in
+                    guard let self else { return }
+                    _ = try persist(draft: draft, images: images)
+                    dismissPresented()
+                },
                 onCreate: { [weak self] draft, images in
                     guard let self else { return }
-                    let entry = try store.add(
-                        draft: draft,
-                        screenshotData: images.compactMap { $0.pngData() }
-                    )
+                    let entry = try persist(draft: draft, images: images)
                     dismissPresented()
-                    submit(id: entry.id)
+                    submit(ids: [entry.id])
                 }
             )
             present(view.environmentObject(store), from: root)
@@ -178,7 +180,8 @@
                         self?.presentComposerContent()
                     }
                 },
-                onRetry: { [weak self] id in self?.submit(id: id) },
+                onRetry: { [weak self] id in self?.submit(ids: [id]) },
+                onSubmitSelected: { [weak self] ids in self?.submit(ids: ids) },
                 onOpen: { UIApplication.shared.open($0) },
                 onExport: { [weak self] entries in self?.share(entries: entries) }
             )
@@ -201,15 +204,30 @@
             }
         }
 
-        private func submit(id: UUID) {
-            guard submissionTasks[id] == nil, let gatewayClient else { return }
+        private func persist(draft: MBIssueDraft, images: [UIImage]) throws -> MBIssueEntry {
+            try store.add(
+                draft: draft,
+                screenshotData: images.compactMap { $0.pngData() }
+            )
+        }
+
+        private func submit(ids: [UUID]) {
+            guard let gatewayClient else { return }
+            var seenIDs: Set<UUID> = []
+            let pendingIDs = ids.filter { id in
+                seenIDs.insert(id).inserted && submissionTasks[id] == nil
+            }
+            guard !pendingIDs.isEmpty else { return }
+
             let task = Task { [weak self] in
                 guard let self else { return }
-                defer { submissionTasks[id] = nil }
+                defer {
+                    pendingIDs.forEach { submissionTasks[$0] = nil }
+                }
                 let submitter = MBIssueGatewaySubmitter(store: store, client: gatewayClient)
-                await submitter.submit(ids: [id])
+                await submitter.submit(ids: pendingIDs)
             }
-            submissionTasks[id] = task
+            pendingIDs.forEach { submissionTasks[$0] = task }
         }
 
         private func share(entries: [MBIssueEntry]) {

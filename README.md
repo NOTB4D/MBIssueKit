@@ -4,7 +4,8 @@
 
 It provides a draggable overlay, a modern title/description composer, selectable severity, screenshot capture, image
 annotation, technical runtime context, local retry storage, detailed report history, ZIP export, and authenticated
-submission through the host application's backend. It never collects application logs, network payloads, or
+submission through the host application's backend. Reports can be saved as local drafts, selected together, and
+submitted as separate Jira tasks in one batch action. It never collects application logs, network payloads, or
 state-management actions.
 
 ## Requirements
@@ -65,6 +66,11 @@ Technical context includes the current screen/controller and navigation stack, a
 environment, OS, device identifier, architecture, appearance, locale, and screen size. The composer shows this data
 before submission. Reports can be inspected later and exported as a ZIP containing `report.md`, `metadata.json`, and
 screenshots. Jira credentials are never included in the app or ZIP.
+
+In the composer, **Save Draft** persists the report without contacting the backend. From **Issue reports**, choose the
+selection control, select any pending or failed reports, and use **Create Selected in Jira**. Each report is sent as an
+independent request and creates its own Jira task. Submitted and in-flight reports cannot be selected; a failure remains
+attached to only that local report and can be retried without resubmitting successful entries.
 
 ## Development
 
