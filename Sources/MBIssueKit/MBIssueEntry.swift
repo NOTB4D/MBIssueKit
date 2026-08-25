@@ -6,6 +6,8 @@ public struct MBIssueEntry: Codable, Identifiable, Equatable, Sendable {
     public let createdAt: Date
     public let title: String
     public let description: String
+    public let severity: MBIssueSeverity
+    public let technicalContext: MBIssueTechnicalContext?
     public var screenshotFileNames: [String]
     public var jiraStatus: JiraStatus
     public var jiraSubmission: JiraSubmission?
@@ -16,6 +18,8 @@ public struct MBIssueEntry: Codable, Identifiable, Equatable, Sendable {
         createdAt: Date,
         title: String,
         description: String,
+        severity: MBIssueSeverity = .major,
+        technicalContext: MBIssueTechnicalContext? = nil,
         screenshotFileNames: [String],
         jiraStatus: JiraStatus = .notSubmitted,
         jiraSubmission: JiraSubmission? = nil,
@@ -25,6 +29,8 @@ public struct MBIssueEntry: Codable, Identifiable, Equatable, Sendable {
         self.createdAt = createdAt
         self.title = title
         self.description = description
+        self.severity = severity
+        self.technicalContext = technicalContext
         self.screenshotFileNames = screenshotFileNames
         self.jiraStatus = jiraStatus
         self.jiraSubmission = jiraSubmission
@@ -62,12 +68,27 @@ public struct MBIssueEntry: Codable, Identifiable, Equatable, Sendable {
 }
 
 public extension MBIssueEntry {
+    private enum CodingKeys: String, CodingKey {
+        case id
+        case createdAt
+        case title
+        case description
+        case severity
+        case technicalContext
+        case screenshotFileNames
+        case jiraStatus
+        case jiraSubmission
+        case jiraMessage
+    }
+
     init(from decoder: Decoder) throws {
         let container = try decoder.container(keyedBy: CodingKeys.self)
         id = try container.decode(UUID.self, forKey: .id)
         createdAt = try container.decode(Date.self, forKey: .createdAt)
         title = try container.decode(String.self, forKey: .title)
         description = try container.decode(String.self, forKey: .description)
+        severity = try container.decodeIfPresent(MBIssueSeverity.self, forKey: .severity) ?? .major
+        technicalContext = try container.decodeIfPresent(MBIssueTechnicalContext.self, forKey: .technicalContext)
         screenshotFileNames = try container.decodeIfPresent([String].self, forKey: .screenshotFileNames) ?? []
         jiraSubmission = try container.decodeIfPresent(JiraSubmission.self, forKey: .jiraSubmission)
 

@@ -1,18 +1,20 @@
 # ``MBIssueKit``
 
-Create focused Jira tasks from an iOS app without collecting application logs or technical context.
+Create detailed, reproducible Jira tasks from an iOS app without collecting application logs.
 
 ## Overview
 
 MBIssueKit installs a draggable overlay above a host application. A user can enter a dedicated title and description,
-review or annotate an automatically captured screenshot, add images from Photos, and create a Jira task. Reports are
-persisted locally before submission so failed requests remain retryable.
+choose severity, review the technical context, annotate an automatically captured screenshot, add images from Photos,
+and create a Jira task through the host application's backend. Reports can be saved locally as drafts and later selected
+for batch submission. Every selected report creates a separate Jira task, while failures remain independently retryable.
+Local reports have a detail screen and can be exported as a ZIP archive.
 
-The Jira description contains only text written by the user. MBIssueKit does not add navigation state, architecture
-details, TCA actions, device metadata, or application logs.
+The report combines the user's text with the technical context shown in the composer. MBIssueKit does not
+collect application logs, network payloads, credentials, or state-management actions such as TCA actions.
 
-> Important: MBIssueKit authenticates with a Jira Cloud email and API token. Use it only in protected development or
-> QA builds, inject credentials at runtime, and never commit a token to source control.
+> Important: MBIssueKit authenticates only with the host application's short-lived session token. Jira API credentials
+> and project configuration belong exclusively on the backend and must never ship in an iOS binary.
 
 ## Topics
 
@@ -25,13 +27,15 @@ details, TCA actions, device metadata, or application logs.
 
 - ``MBIssueKit``
 - ``MBIssueKitConfiguration``
-- ``MBIssueJiraConfiguration``
+- ``MBIssueGatewayConfiguration``
 - ``MBIssueDraft``
 - ``MBIssueEntry``
+- ``MBIssueSeverity``
+- ``MBIssueTechnicalContext``
 - ``MBIssueStore``
 
 ### Errors
 
 - ``MBIssueConfigurationError``
 - ``MBIssueValidationError``
-- ``MBIssueJiraError``
+- ``MBIssueGatewayError``
