@@ -22,6 +22,9 @@ let reporterStore = MBIssueKeychainReporterSessionStore(
 )
 let reporterAuthentication = try MBIssueReporterAuthenticationConfiguration(
     callbackURLScheme: "sonex-mbissue",
+    browserSessionPolicy: .shared,
+    authorizationTimeout: 300,
+    pollingInterval: 1,
     sessionStore: reporterStore
 )
 let gateway = try MBIssueGatewayConfiguration(
@@ -46,10 +49,18 @@ MBIssueKit.configure(MBIssueKitConfiguration(
 The provider is asynchronous and runs immediately before a submission. It can therefore read a refreshed access token
 from the host app's keychain or session store. Do not return an issue-tracker token from this closure.
 
-Register the same custom URL scheme in the app target. Interactive login uses an ephemeral system authentication
-session. The issue tracker's authorization code and access/refresh tokens terminate at the backend; the callback URL
+Register the same custom URL scheme in the app target. Interactive login uses a shared system authentication session by
+default. This keeps identity-provider and installed-app handoffs compatible and can reuse an existing browser login. Choose
+`.ephemeral` only when isolation is more important than handoff compatibility and repeated login prompts. The issue
+tracker's authorization code and access/refresh tokens terminate at the backend; the callback URL
 returning to the app contains no secret. Only a backend-issued, revocable reporter session is stored in the device-only,
 non-synchronizing Keychain item.
+
+While the browser is open, MBIssueKit polls the authenticated backend for the one-time authorization's provider-neutral
+status. This is a fallback for installed identity-provider apps that complete the server callback but fail to return control
+to `ASWebAuthenticationSession`. The proof is sent in a TLS-protected POST body, never in a URL, and every status request
+is bound by the backend to the same host user and device. Polling stops on completion, rejection, cancellation, server
+expiry, or `authorizationTimeout`; suspended polling naturally resumes when the host app becomes active again.
 
 The opaque reporter session may be short-lived. MBIssueKit renews it through
 `POST /issue-reporting/api/v1/reporter/session` using only the host application's current access token. The backend must
@@ -90,6 +101,13 @@ credentials and routing, creates the issue, and uploads selected screenshots. Th
 
 When a report is rejected because its reporter session expired, the package performs one single-flight renewal and retries
 that same idempotent request once. It never renews after an ordinary permission, validation, transport, or provider error.
+
+Interactive authorization uses these provider-neutral endpoints:
+
+- `POST /issue-reporting/api/v1/reporter/authorization` creates a short-lived challenge.
+- `POST /issue-reporting/api/v1/reporter/authorization/{id}/status` reads its reduced status using the in-memory proof.
+- `POST /issue-reporting/api/v1/reporter/authorization/{id}/complete` consumes a ready challenge and issues the opaque
+  reporter session.
 
 ## Remove the overlay
 

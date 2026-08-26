@@ -41,6 +41,28 @@ struct MBIssueProviderAuthenticationTests {
         #expect(!String(decoding: body, as: UTF8.self).localizedCaseInsensitiveContains("jira"))
     }
 
+    @Test("Authorization status keeps the one-time proof out of the URL")
+    func buildsAuthorizationStatusRequest() throws {
+        let configuration = try gatewayConfiguration()
+        let authorizationID = try #require(UUID(uuidString: "25F72590-BFFE-487B-B3A3-02DEDBF6A8AF"))
+
+        let request = try MBIssueGatewayRequestBuilder.reporterAuthorizationStatus(
+            authorizationID: authorizationID,
+            proof: "one-time-proof",
+            configuration: configuration,
+            accessToken: "host-session"
+        )
+
+        #expect(request.url?.absoluteString == "https://api.sonex.example/issue-reporting/api/v1/reporter/authorization/25F72590-BFFE-487B-B3A3-02DEDBF6A8AF/status")
+        #expect(request.url?.query == nil)
+        #expect(request.httpMethod == "POST")
+        #expect(request.value(forHTTPHeaderField: "Authorization") == "Bearer host-session")
+
+        let body = try #require(request.httpBody)
+        let object = try #require(JSONSerialization.jsonObject(with: body) as? [String: String])
+        #expect(object == ["proof": "one-time-proof"])
+    }
+
     @Test("Reporter session status is provider neutral")
     func buildsReporterStatusRequest() throws {
         let configuration = try gatewayConfiguration()

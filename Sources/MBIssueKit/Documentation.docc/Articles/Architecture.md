@@ -10,13 +10,15 @@ Understand how reports move from the overlay through a host backend to the selec
 4. The user can submit one report immediately or select multiple pending/failed reports from the local list.
 5. When required, the reporter authorizes their own tracker identity through the system browser. MBIssueKit retains only
    a revocable backend session in a device-only Keychain item; provider OAuth tokens never reach iOS.
-6. If that short-lived reporter session expires, the gateway silently replaces it through the authenticated host backend.
+6. The browser callback and a proof-bound backend status poll race to completion. This lets an installed identity-provider
+   app complete the server callback even when it does not return control to the system authentication sheet.
+7. If that short-lived reporter session expires, the gateway silently replaces it through the authenticated host backend.
    Interactive provider authorization is shown again only when the server-side user/device binding or provider grant is revoked.
-7. The gateway client authenticates each report to the host backend with the current host and reporter sessions.
-8. The backend's selected provider adapter maps the report to server-owned project/board, work-item type, labels, and
+8. The gateway client authenticates each report to the host backend with the current host and reporter sessions.
+9. The backend's selected provider adapter maps the report to server-owned project/board, work-item type, labels, and
    priority configuration.
-9. The backend creates one provider issue per local report and uploads that report's selected screenshots.
-10. Each local entry independently records its provider ID, issue key, and URL. Failed work remains available for retry without
+10. The backend creates one provider issue per local report and uploads that report's selected screenshots.
+11. Each local entry independently records its provider ID, issue key, and URL. Failed work remains available for retry without
    resubmitting entries that already succeeded.
 
 ## Submission safety
@@ -44,6 +46,7 @@ only on the server.
 
 - Views depend on the reporter connection controller and report store, not URLSession or a concrete tracker.
 - The connection controller depends on the `MBIssueReportingGateway` and `MBIssueWebAuthorizing` protocols.
+- Authorization recovery depends only on provider-neutral challenge states; it contains no Jira-specific branch or URL.
 - The gateway speaks only provider-neutral DTOs and persists through `MBIssueReporterSessionStoring`.
 - Reporter-session renewal is single-flight and retries a rejected report at most once with the rotated opaque session.
 - The host backend selects concrete Jira, Azure DevOps, or future adapters behind its own provider protocol.

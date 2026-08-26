@@ -123,6 +123,66 @@ struct MBIssueReporterConnectionControllerTests {
         #expect(controller.state == .connected(.init(provider: provider, reporter: reporter)))
         #expect(await gateway.completionCount == 1)
     }
+
+    @Test("Backend readiness completes authorization when the browser callback is lost")
+    func completesFromBackendStatus() async {
+        let provider = MBIssueTrackerProvider(
+            id: "provider",
+            displayName: "Tracker",
+            destinationName: "Board",
+            requiresReporterAuthorization: true
+        )
+        let reporter = MBIssueReporterIdentity(accountID: "account", displayName: "QA User")
+        let gateway = GatewayStub(
+            initialConnection: .init(provider: provider, reporter: nil),
+            completedConnection: .init(provider: provider, reporter: reporter),
+            authorizationStatuses: [.ready]
+        )
+        let webAuthorizer = HangingWebAuthorizerStub()
+        let controller = MBIssueReporterConnectionController(
+            gateway: gateway,
+            callbackURLScheme: "sonex-mbissue",
+            webAuthorizer: webAuthorizer,
+            authorizationTimeout: 30,
+            pollingInterval: 0.01
+        )
+
+        await controller.refresh()
+        await controller.connect()
+
+        #expect(controller.state == .connected(.init(provider: provider, reporter: reporter)))
+        #expect(await gateway.statusRequestCount >= 1)
+        #expect(await gateway.completionCount == 1)
+        #expect(webAuthorizer.wasCancelled)
+    }
+
+    @Test("An expired backend authorization does not create a reporter session")
+    func rejectsExpiredBackendAuthorization() async {
+        let provider = MBIssueTrackerProvider(
+            id: "provider",
+            displayName: "Tracker",
+            destinationName: "Board",
+            requiresReporterAuthorization: true
+        )
+        let gateway = GatewayStub(
+            initialConnection: .init(provider: provider, reporter: nil),
+            completedConnection: .init(provider: provider, reporter: nil),
+            authorizationStatuses: [.expired]
+        )
+        let controller = MBIssueReporterConnectionController(
+            gateway: gateway,
+            callbackURLScheme: "sonex-mbissue",
+            webAuthorizer: HangingWebAuthorizerStub(),
+            authorizationTimeout: 30,
+            pollingInterval: 0.01
+        )
+
+        await controller.refresh()
+        await controller.connect()
+
+        #expect(controller.state == .failed(provider, MBIssueGatewayError.authorizationExpired.localizedDescription))
+        #expect(await gateway.completionCount == 0)
+    }
 }
 
 private actor GatewayStub: MBIssueReportingGateway {
@@ -130,16 +190,20 @@ private actor GatewayStub: MBIssueReportingGateway {
     let completedConnection: MBIssueReporterConnection
     private(set) var completionCount = 0
     private(set) var disconnectCount = 0
+    private(set) var statusRequestCount = 0
+    private var authorizationStatuses: [MBIssueReporterAuthorizationStatus]
 
     init(
         initialConnection: MBIssueReporterConnection,
-        completedConnection: MBIssueReporterConnection
+        completedConnection: MBIssueReporterConnection,
+        authorizationStatuses: [MBIssueReporterAuthorizationStatus] = [.pending]
     ) {
         self.initialConnection = initialConnection
         self.completedConnection = completedConnection
+        self.authorizationStatuses = authorizationStatuses
     }
 
-    func submit(entry: MBIssueEntry, screenshotURLs: [URL]) async throws -> MBIssueSubmissionReceipt {
+    func submit(entry _: MBIssueEntry, screenshotURLs _: [URL]) async throws -> MBIssueSubmissionReceipt {
         Issue.record("Submission is outside this state-machine test")
         throw MBIssueGatewayError.invalidResponse
     }
@@ -158,11 +222,22 @@ private actor GatewayStub: MBIssueReportingGateway {
     }
 
     func completeReporterAuthorization(
-        authorizationID: UUID,
-        proof: String
+        authorizationID _: UUID,
+        proof _: String
     ) async throws -> MBIssueReporterConnection {
         completionCount += 1
         return completedConnection
+    }
+
+    func reporterAuthorizationStatus(
+        authorizationID _: UUID,
+        proof _: String
+    ) async throws -> MBIssueReporterAuthorizationStatus {
+        statusRequestCount += 1
+        guard authorizationStatuses.count > 1 else {
+            return authorizationStatuses.first ?? .pending
+        }
+        return authorizationStatuses.removeFirst()
     }
 
     func disconnectReporter() async throws {
@@ -216,5 +291,30 @@ private final class CallbackDrivenWebAuthorizerStub: MBIssueWebAuthorizing {
         self.continuation = nil
         continuation.resume()
         return true
+    }
+}
+
+@MainActor
+private final class HangingWebAuthorizerStub: MBIssueWebAuthorizing {
+    private var continuation: CheckedContinuation<Void, Error>?
+    private(set) var wasCancelled = false
+
+    func authorize(at _: URL, callbackURLScheme _: String) async throws {
+        try await withTaskCancellationHandler {
+            try await withCheckedThrowingContinuation { continuation in
+                self.continuation = continuation
+            }
+        } onCancel: {
+            Task { @MainActor [weak self] in
+                guard let self, let continuation else { return }
+                self.continuation = nil
+                wasCancelled = true
+                continuation.resume(throwing: CancellationError())
+            }
+        }
+    }
+
+    func handleOpenURL(_: URL) -> Bool {
+        false
     }
 }
