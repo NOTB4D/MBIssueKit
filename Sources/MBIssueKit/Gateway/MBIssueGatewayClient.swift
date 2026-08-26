@@ -1,5 +1,27 @@
 import Foundation
 
+protocol MBIssueHTTPTransport: Sendable {
+    func data(for request: URLRequest) async throws -> (Data, URLResponse)
+}
+
+extension URLSession: MBIssueHTTPTransport {}
+
+actor MBIssueReporterSessionRenewer {
+    private var renewalTask: Task<MBIssueReporterSessionResponse, any Error>?
+
+    func renew(
+        operation: @escaping @Sendable () async throws -> MBIssueReporterSessionResponse
+    ) async throws -> MBIssueReporterSessionResponse {
+        if let renewalTask {
+            return try await renewalTask.value
+        }
+        let task = Task { try await operation() }
+        renewalTask = task
+        defer { renewalTask = nil }
+        return try await task.value
+    }
+}
+
 protocol MBIssueReportingGateway: Sendable {
     func submit(entry: MBIssueEntry, screenshotURLs: [URL]) async throws -> MBIssueSubmissionReceipt
     func reporterConnection() async throws -> MBIssueReporterConnection
@@ -13,14 +35,33 @@ protocol MBIssueReportingGateway: Sendable {
 
 struct MBIssueGatewayClient: MBIssueReportingGateway, Sendable {
     let configuration: MBIssueGatewayConfiguration
-    let session: URLSession
+    private let transport: any MBIssueHTTPTransport
+    private let sessionRenewer: MBIssueReporterSessionRenewer
+
+    init(configuration: MBIssueGatewayConfiguration, session: URLSession) {
+        self.init(configuration: configuration, transport: session)
+    }
+
+    init(
+        configuration: MBIssueGatewayConfiguration,
+        transport: any MBIssueHTTPTransport,
+        sessionRenewer: MBIssueReporterSessionRenewer = .init()
+    ) {
+        self.configuration = configuration
+        self.transport = transport
+        self.sessionRenewer = sessionRenewer
+    }
 
     func submit(
         entry: MBIssueEntry,
         screenshotURLs: [URL]
     ) async throws -> MBIssueSubmissionReceipt {
         let accessToken = try await configuration.accessTokenProvider()
-        let reporterSessionToken = try await configuration.reporterAuthentication?.sessionStore.loadToken()
+        let authentication = configuration.reporterAuthentication
+        var reporterSessionToken = try await authentication?.sessionStore.loadToken()
+        if reporterSessionToken == nil, authentication != nil {
+            reporterSessionToken = try await renewReporterSession(accessToken: accessToken).reporterSessionToken
+        }
         let attachments = try screenshotURLs.map { url in
             let data: Data
             do {
@@ -41,7 +82,20 @@ struct MBIssueGatewayClient: MBIssueReportingGateway, Sendable {
             accessToken: accessToken,
             reporterSessionToken: reporterSessionToken
         )
-        let response: SubmitResponse = try await perform(request)
+        let response: SubmitResponse
+        do {
+            response = try await perform(request)
+        } catch MBIssueGatewayError.reporterAuthorizationRequired {
+            let renewed = try await renewReporterSession(accessToken: accessToken)
+            let retry = try MBIssueGatewayRequestBuilder.submit(
+                entry: entry,
+                screenshots: attachments,
+                configuration: configuration,
+                accessToken: accessToken,
+                reporterSessionToken: renewed.reporterSessionToken
+            )
+            response = try await perform(retry)
+        }
         return MBIssueSubmissionReceipt(
             providerID: response.providerID,
             providerDisplayName: response.providerDisplayName,
@@ -57,6 +111,9 @@ struct MBIssueGatewayClient: MBIssueReportingGateway, Sendable {
         let authentication = try reporterAuthentication()
         let accessToken = try await configuration.accessTokenProvider()
         let reporterToken = try await authentication.sessionStore.loadToken()
+        guard let reporterToken else {
+            return try await renewReporterSession(accessToken: accessToken).connection
+        }
         let request = try MBIssueGatewayRequestBuilder.reporterConnection(
             configuration: configuration,
             accessToken: accessToken,
@@ -66,7 +123,7 @@ struct MBIssueGatewayClient: MBIssueReportingGateway, Sendable {
             return try await perform(request)
         } catch MBIssueGatewayError.reporterAuthorizationRequired {
             try? await authentication.sessionStore.deleteToken()
-            throw MBIssueGatewayError.reporterAuthorizationRequired
+            return try await renewReporterSession(accessToken: accessToken).connection
         }
     }
 
@@ -109,14 +166,10 @@ struct MBIssueGatewayClient: MBIssueReportingGateway, Sendable {
 
     func disconnectReporter() async throws {
         let authentication = try reporterAuthentication()
-        guard let reporterToken = try await authentication.sessionStore.loadToken() else {
-            return
-        }
         let accessToken = try await configuration.accessTokenProvider()
         let request = try MBIssueGatewayRequestBuilder.disconnectReporter(
             configuration: configuration,
-            accessToken: accessToken,
-            reporterSessionToken: reporterToken
+            accessToken: accessToken
         )
         do {
             try await performNoContent(request)
@@ -124,6 +177,25 @@ struct MBIssueGatewayClient: MBIssueReportingGateway, Sendable {
             // An already-expired server session is disconnected from the device below.
         }
         try await authentication.sessionStore.deleteToken()
+    }
+
+    private func renewReporterSession(accessToken: String) async throws -> MBIssueReporterSessionResponse {
+        let authentication = try reporterAuthentication()
+        let configuration = configuration
+        let transport = transport
+        let response = try await sessionRenewer.renew {
+            let request = try MBIssueGatewayRequestBuilder.renewReporterSession(
+                configuration: configuration,
+                accessToken: accessToken
+            )
+            return try await Self.perform(request, using: transport)
+        }
+        let token = response.reporterSessionToken.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !token.isEmpty else {
+            throw MBIssueGatewayError.invalidResponse
+        }
+        try await authentication.sessionStore.saveToken(token)
+        return response
     }
 
     private func reporterAuthentication() throws -> MBIssueReporterAuthenticationConfiguration {
@@ -134,7 +206,14 @@ struct MBIssueGatewayClient: MBIssueReportingGateway, Sendable {
     }
 
     private func perform<Output: Decodable>(_ request: URLRequest) async throws -> Output {
-        let data = try await responseData(for: request)
+        try await Self.perform(request, using: transport)
+    }
+
+    private static func perform<Output: Decodable>(
+        _ request: URLRequest,
+        using transport: any MBIssueHTTPTransport
+    ) async throws -> Output {
+        let data = try await responseData(for: request, using: transport)
         do {
             let decoder = JSONDecoder()
             decoder.dateDecodingStrategy = .iso8601
@@ -145,14 +224,17 @@ struct MBIssueGatewayClient: MBIssueReportingGateway, Sendable {
     }
 
     private func performNoContent(_ request: URLRequest) async throws {
-        _ = try await responseData(for: request)
+        _ = try await Self.responseData(for: request, using: transport)
     }
 
-    private func responseData(for request: URLRequest) async throws -> Data {
+    private static func responseData(
+        for request: URLRequest,
+        using transport: any MBIssueHTTPTransport
+    ) async throws -> Data {
         let data: Data
         let response: URLResponse
         do {
-            (data, response) = try await session.data(for: request)
+            (data, response) = try await transport.data(for: request)
         } catch is CancellationError {
             throw CancellationError()
         } catch {
@@ -167,7 +249,7 @@ struct MBIssueGatewayClient: MBIssueReportingGateway, Sendable {
         return data
     }
 
-    private func mapHTTPError(statusCode: Int, data: Data) -> MBIssueGatewayError {
+    private static func mapHTTPError(statusCode: Int, data: Data) -> MBIssueGatewayError {
         let response = try? JSONDecoder().decode(ErrorResponse.self, from: data)
         if statusCode == 428 || response?.code == "reporter_authorization_required" {
             return .reporterAuthorizationRequired

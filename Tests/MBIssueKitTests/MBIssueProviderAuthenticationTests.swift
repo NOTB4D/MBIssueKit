@@ -22,7 +22,7 @@ struct MBIssueProviderAuthenticationTests {
     @Test("Authorization completion sends only the one-time proof")
     func buildsAuthorizationCompletionRequest() throws {
         let configuration = try gatewayConfiguration()
-        let authorizationID = UUID(uuidString: "25F72590-BFFE-487B-B3A3-02DEDBF6A8AF")!
+        let authorizationID = try #require(UUID(uuidString: "25F72590-BFFE-487B-B3A3-02DEDBF6A8AF"))
 
         let request = try MBIssueGatewayRequestBuilder.completeReporterAuthorization(
             authorizationID: authorizationID,
@@ -54,6 +54,37 @@ struct MBIssueProviderAuthenticationTests {
         #expect(request.url?.absoluteString == "https://api.sonex.example/issue-reporting/api/v1/reporter")
         #expect(request.httpMethod == "GET")
         #expect(request.value(forHTTPHeaderField: "X-MBIssue-Reporter-Session") == "Bearer reporter-session")
+    }
+
+    @Test("Reporter session renewal relies only on the authenticated host session")
+    func buildsReporterSessionRenewalRequest() throws {
+        let configuration = try gatewayConfiguration()
+
+        let request = try MBIssueGatewayRequestBuilder.renewReporterSession(
+            configuration: configuration,
+            accessToken: "host-session"
+        )
+
+        #expect(request.url?.absoluteString == "https://api.sonex.example/issue-reporting/api/v1/reporter/session")
+        #expect(request.httpMethod == "POST")
+        #expect(request.value(forHTTPHeaderField: "Authorization") == "Bearer host-session")
+        #expect(request.value(forHTTPHeaderField: "X-MBIssue-Reporter-Session") == nil)
+        #expect(request.httpBody == nil)
+    }
+
+    @Test("Reporter disconnect revokes the server binding without trusting a reporter token")
+    func buildsReporterDisconnectRequest() throws {
+        let configuration = try gatewayConfiguration()
+
+        let request = try MBIssueGatewayRequestBuilder.disconnectReporter(
+            configuration: configuration,
+            accessToken: "host-session"
+        )
+
+        #expect(request.url?.absoluteString == "https://api.sonex.example/issue-reporting/api/v1/reporter")
+        #expect(request.httpMethod == "DELETE")
+        #expect(request.value(forHTTPHeaderField: "Authorization") == "Bearer host-session")
+        #expect(request.value(forHTTPHeaderField: "X-MBIssue-Reporter-Session") == nil)
     }
 
     private func gatewayConfiguration() throws -> MBIssueGatewayConfiguration {

@@ -70,7 +70,10 @@ MBIssueKit.toggle()
 `accessTokenProvider` is evaluated for every submission, so refreshed host-session tokens are used automatically. The
 package never accepts or stores a provider access/refresh token, API token, project key, work-item type, label, or
 priority mapping. The backend selects Jira, Azure DevOps, or another adapter and authenticates the host session before
-creating an issue. MBIssueKit therefore does not change when the destination board or provider changes.
+creating an issue. Short-lived reporter sessions are renewed silently through the authenticated backend and a rejected
+report is retried at most once with the same idempotency key. Interactive provider login is required again only when the
+server-side user/device binding or provider grant is unavailable or revoked. MBIssueKit therefore does not change when
+the destination board or provider changes.
 
 Technical context includes the current screen/controller and navigation stack, application version/build, bundle,
 environment, OS, device identifier, architecture, appearance, locale, and screen size. The composer shows this data

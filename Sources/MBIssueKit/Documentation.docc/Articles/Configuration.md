@@ -51,6 +51,11 @@ session. The issue tracker's authorization code and access/refresh tokens termin
 returning to the app contains no secret. Only a backend-issued, revocable reporter session is stored in the device-only,
 non-synchronizing Keychain item.
 
+The opaque reporter session may be short-lived. MBIssueKit renews it through
+`POST /issue-reporting/api/v1/reporter/session` using only the host application's current access token. The backend must
+bind renewal to the same authenticated host user and device. A missing or revoked binding returns
+`reporter_authorization_required`, at which point interactive authorization is required again.
+
 ## Toggle the overlay
 
 Forward a shake notification to ``MBIssueKit/toggle(referenceWindow:)``:
@@ -82,6 +87,9 @@ the report UUID as `Idempotency-Key`. If reporter authentication is configured i
 `X-MBIssue-Reporter-Session`; never in the request body. The backend validates both sessions, owns provider OAuth
 credentials and routing, creates the issue, and uploads selected screenshots. The response contains `providerID`,
 `providerDisplayName`, `issueID`, `issueKey`, and `issueURL`.
+
+When a report is rejected because its reporter session expired, the package performs one single-flight renewal and retries
+that same idempotent request once. It never renews after an ordinary permission, validation, transport, or provider error.
 
 ## Remove the overlay
 
