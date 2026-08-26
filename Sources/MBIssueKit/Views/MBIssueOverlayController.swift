@@ -32,13 +32,17 @@
             if let authentication = configuration.gateway.reporterAuthentication,
                let gatewayClient
             {
-                let webAuthorizer = MBIssueSystemWebAuthorizer { [weak self] in
+                let webAuthorizer = MBIssueSystemWebAuthorizer(
+                    browserSessionPolicy: authentication.browserSessionPolicy
+                ) { [weak self] in
                     self?.overlayWindow ?? self?.referenceWindow
                 }
                 reporterConnectionController = MBIssueReporterConnectionController(
                     gateway: gatewayClient,
                     callbackURLScheme: authentication.callbackURLScheme,
-                    webAuthorizer: webAuthorizer
+                    webAuthorizer: webAuthorizer,
+                    authorizationTimeout: authentication.authorizationTimeout,
+                    pollingInterval: authentication.pollingInterval
                 )
             } else {
                 reporterConnectionController = MBIssueReporterConnectionController(

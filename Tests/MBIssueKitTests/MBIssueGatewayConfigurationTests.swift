@@ -25,6 +25,9 @@ struct MBIssueGatewayConfigurationTests {
         )
 
         #expect(reporterAuthentication.callbackURLScheme == "sonex-mbissue")
+        #expect(reporterAuthentication.browserSessionPolicy == .shared)
+        #expect(reporterAuthentication.authorizationTimeout == 300)
+        #expect(reporterAuthentication.pollingInterval == 1)
     }
 
     @Test("Web callback schemes cannot collide with ordinary HTTPS navigation")

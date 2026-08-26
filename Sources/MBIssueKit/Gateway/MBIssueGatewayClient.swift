@@ -26,6 +26,10 @@ protocol MBIssueReportingGateway: Sendable {
     func submit(entry: MBIssueEntry, screenshotURLs: [URL]) async throws -> MBIssueSubmissionReceipt
     func reporterConnection() async throws -> MBIssueReporterConnection
     func startReporterAuthorization() async throws -> MBIssueReporterAuthorizationChallenge
+    func reporterAuthorizationStatus(
+        authorizationID: UUID,
+        proof: String
+    ) async throws -> MBIssueReporterAuthorizationStatus
     func completeReporterAuthorization(
         authorizationID: UUID,
         proof: String
@@ -162,6 +166,22 @@ struct MBIssueGatewayClient: MBIssueReportingGateway, Sendable {
         }
         try await authentication.sessionStore.saveToken(token)
         return response.connection
+    }
+
+    func reporterAuthorizationStatus(
+        authorizationID: UUID,
+        proof: String
+    ) async throws -> MBIssueReporterAuthorizationStatus {
+        _ = try reporterAuthentication()
+        let accessToken = try await configuration.accessTokenProvider()
+        let request = try MBIssueGatewayRequestBuilder.reporterAuthorizationStatus(
+            authorizationID: authorizationID,
+            proof: proof,
+            configuration: configuration,
+            accessToken: accessToken
+        )
+        let response: MBIssueReporterAuthorizationStatusResponse = try await perform(request)
+        return response.status
     }
 
     func disconnectReporter() async throws {

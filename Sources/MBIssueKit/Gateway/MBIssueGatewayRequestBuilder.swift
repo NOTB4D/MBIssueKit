@@ -64,7 +64,30 @@ enum MBIssueGatewayRequestBuilder {
         request.setValue("Bearer \(token)", forHTTPHeaderField: "Authorization")
         request.setValue("application/json", forHTTPHeaderField: "Accept")
         request.setValue("application/json", forHTTPHeaderField: "Content-Type")
-        request.httpBody = try JSONEncoder().encode(AuthorizationCompletion(proof: normalizedProof))
+        request.httpBody = try JSONEncoder().encode(AuthorizationProof(proof: normalizedProof))
+        return request
+    }
+
+    static func reporterAuthorizationStatus(
+        authorizationID: UUID,
+        proof: String,
+        configuration: MBIssueGatewayConfiguration,
+        accessToken: String
+    ) throws -> URLRequest {
+        let token = try validatedHostToken(accessToken)
+        let normalizedProof = proof.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !normalizedProof.isEmpty else {
+            throw MBIssueConfigurationError.missingAuthorizationProof
+        }
+        var request = URLRequest(url: endpoint(
+            configuration,
+            path: ["reporter", "authorization", authorizationID.uuidString, "status"]
+        ))
+        request.httpMethod = "POST"
+        request.setValue("Bearer \(token)", forHTTPHeaderField: "Authorization")
+        request.setValue("application/json", forHTTPHeaderField: "Accept")
+        request.setValue("application/json", forHTTPHeaderField: "Content-Type")
+        request.httpBody = try JSONEncoder().encode(AuthorizationProof(proof: normalizedProof))
         return request
     }
 
@@ -178,7 +201,7 @@ enum MBIssueGatewayRequestBuilder {
     }
 }
 
-private struct AuthorizationCompletion: Encodable {
+private struct AuthorizationProof: Encodable {
     let proof: String
 }
 

@@ -7,11 +7,16 @@
         typealias AnchorProvider = @MainActor () -> ASPresentationAnchor?
 
         private let anchorProvider: AnchorProvider
+        private let browserSessionPolicy: MBIssueBrowserSessionPolicy
         private var activeSession: ASWebAuthenticationSession?
         private var continuation: CheckedContinuation<Void, Error>?
         private var expectedCallbackScheme: String?
 
-        init(anchorProvider: @escaping AnchorProvider) {
+        init(
+            browserSessionPolicy: MBIssueBrowserSessionPolicy = .shared,
+            anchorProvider: @escaping AnchorProvider
+        ) {
+            self.browserSessionPolicy = browserSessionPolicy
             self.anchorProvider = anchorProvider
         }
 
@@ -36,7 +41,7 @@
                         }
                     }
                     session.presentationContextProvider = self
-                    session.prefersEphemeralWebBrowserSession = true
+                    session.prefersEphemeralWebBrowserSession = browserSessionPolicy == .ephemeral
                     activeSession = session
                     guard session.start() else {
                         finish(result: .failure(MBIssueGatewayError.authorizationCouldNotStart))
@@ -68,7 +73,8 @@
 
         private func finish(callbackURL: URL?, error: Error?) {
             if let authenticationError = error as? ASWebAuthenticationSessionError,
-               authenticationError.code == .canceledLogin {
+               authenticationError.code == .canceledLogin
+            {
                 finish(result: .failure(MBIssueGatewayError.authorizationCancelled))
                 return
             }
@@ -100,7 +106,7 @@
     }
 
     extension MBIssueSystemWebAuthorizer: ASWebAuthenticationPresentationContextProviding {
-        func presentationAnchor(for session: ASWebAuthenticationSession) -> ASPresentationAnchor {
+        func presentationAnchor(for _: ASWebAuthenticationSession) -> ASPresentationAnchor {
             // Authorization refuses to start without an anchor, so this fallback is unreachable.
             anchorProvider() ?? ASPresentationAnchor()
         }

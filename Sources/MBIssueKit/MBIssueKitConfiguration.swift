@@ -72,13 +72,28 @@ public struct MBIssueGatewayConfiguration: Sendable {
     }
 }
 
+/// Controls whether interactive authorization shares Safari's website data.
+public enum MBIssueBrowserSessionPolicy: Equatable, Sendable {
+    /// Shares the system browser session. This is the resilient default for identity-provider app handoffs.
+    case shared
+
+    /// Uses an isolated browser session and may require the reporter to sign in more often.
+    case ephemeral
+}
+
 /// Provider-neutral interactive authorization settings owned by the host app.
 public struct MBIssueReporterAuthenticationConfiguration: Sendable {
     public let callbackURLScheme: String
+    public let browserSessionPolicy: MBIssueBrowserSessionPolicy
+    public let authorizationTimeout: TimeInterval
+    public let pollingInterval: TimeInterval
     let sessionStore: any MBIssueReporterSessionStoring
 
     public init(
         callbackURLScheme: String,
+        browserSessionPolicy: MBIssueBrowserSessionPolicy = .shared,
+        authorizationTimeout: TimeInterval = 300,
+        pollingInterval: TimeInterval = 1,
         sessionStore: any MBIssueReporterSessionStoring
     ) throws {
         let scheme = callbackURLScheme.trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
@@ -91,7 +106,18 @@ public struct MBIssueReporterAuthenticationConfiguration: Sendable {
         else {
             throw MBIssueConfigurationError.invalidCallbackURLScheme
         }
+        guard authorizationTimeout.isFinite,
+              pollingInterval.isFinite,
+              authorizationTimeout > 0,
+              pollingInterval > 0,
+              pollingInterval <= authorizationTimeout
+        else {
+            throw MBIssueConfigurationError.invalidAuthorizationTiming
+        }
         self.callbackURLScheme = scheme
+        self.browserSessionPolicy = browserSessionPolicy
+        self.authorizationTimeout = authorizationTimeout
+        self.pollingInterval = pollingInterval
         self.sessionStore = sessionStore
     }
 }
@@ -103,24 +129,27 @@ public enum MBIssueConfigurationError: LocalizedError, Equatable, Sendable {
     case missingReporterSession
     case missingAuthorizationProof
     case invalidCallbackURLScheme
+    case invalidAuthorizationTiming
     case reporterAuthenticationUnavailable
 
     public var errorDescription: String? {
         switch self {
         case .insecureBaseURL:
-            return "The issue-reporting backend must use a valid HTTPS URL."
+            "The issue-reporting backend must use a valid HTTPS URL."
         case .invalidBaseURL:
-            return "The issue-reporting backend URL is invalid."
+            "The issue-reporting backend URL is invalid."
         case .missingAccessToken:
-            return "The host application did not provide an access token."
+            "The host application did not provide an access token."
         case .missingReporterSession:
-            return "Connect an issue-tracker account before submitting reports."
+            "Connect an issue-tracker account before submitting reports."
         case .missingAuthorizationProof:
-            return "The reporter authorization proof is missing."
+            "The reporter authorization proof is missing."
         case .invalidCallbackURLScheme:
-            return "Reporter authentication requires a valid custom callback URL scheme."
+            "Reporter authentication requires a valid custom callback URL scheme."
+        case .invalidAuthorizationTiming:
+            "Reporter authentication timeout and polling interval must be positive and valid."
         case .reporterAuthenticationUnavailable:
-            return "Reporter authentication is not configured by the host application."
+            "Reporter authentication is not configured by the host application."
         }
     }
 }

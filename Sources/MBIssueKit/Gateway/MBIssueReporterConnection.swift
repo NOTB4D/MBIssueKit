@@ -61,6 +61,18 @@ struct MBIssueReporterAuthorizationChallenge: Decodable, Equatable, Sendable {
     let expiresAt: Date
 }
 
+enum MBIssueReporterAuthorizationStatus: String, Decodable, Equatable, Sendable {
+    case pending
+    case ready
+    case failed
+    case expired
+    case consumed
+}
+
+struct MBIssueReporterAuthorizationStatusResponse: Decodable, Equatable, Sendable {
+    let status: MBIssueReporterAuthorizationStatus
+}
+
 struct MBIssueReporterSessionResponse: Decodable, Equatable, Sendable {
     let reporterSessionToken: String
     let connection: MBIssueReporterConnection
