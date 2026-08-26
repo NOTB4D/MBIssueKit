@@ -82,15 +82,26 @@ enum MBIssueGatewayRequestBuilder {
         return request
     }
 
+    static func renewReporterSession(
+        configuration: MBIssueGatewayConfiguration,
+        accessToken: String
+    ) throws -> URLRequest {
+        let token = try validatedHostToken(accessToken)
+        var request = URLRequest(url: endpoint(configuration, path: ["reporter", "session"]))
+        request.httpMethod = "POST"
+        request.setValue("Bearer \(token)", forHTTPHeaderField: "Authorization")
+        request.setValue("application/json", forHTTPHeaderField: "Accept")
+        return request
+    }
+
     static func disconnectReporter(
         configuration: MBIssueGatewayConfiguration,
-        accessToken: String,
-        reporterSessionToken: String
+        accessToken: String
     ) throws -> URLRequest {
         var request = try reporterConnection(
             configuration: configuration,
             accessToken: accessToken,
-            reporterSessionToken: reporterSessionToken
+            reporterSessionToken: nil
         )
         request.httpMethod = "DELETE"
         return request

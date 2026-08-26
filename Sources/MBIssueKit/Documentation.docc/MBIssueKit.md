@@ -15,7 +15,8 @@ collect application logs, network payloads, credentials, or state-management act
 
 > Important: MBIssueKit receives only the host application's short-lived session token and, when interactive reporter
 > authorization is enabled, a revocable opaque backend session. Issue-tracker OAuth/API credentials and routing belong
-> exclusively on the backend and must never ship in an iOS binary.
+> exclusively on the backend and must never ship in an iOS binary. Expired reporter sessions are renewed through the
+> authenticated host backend without exposing provider credentials to the app.
 
 ## Topics
 
