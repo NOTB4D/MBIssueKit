@@ -21,8 +21,8 @@ let package = Package(
             exact: "1.0.0"
         ),
         .package(
-            url: "https://github.com/mobven/MobKitCore.git",
-            exact: "1.0.1"
+            url: "https://github.com/mobven/MobkitCoreXCFramework.git",
+            exact: "1.0.0"
         ),
     ],
     targets: [
@@ -36,7 +36,7 @@ let package = Package(
                 ),
                 .product(
                     name: "MobKitCore",
-                    package: "MobKitCore",
+                    package: "MobkitCoreXCFramework",
                     condition: .when(platforms: [.iOS])
                 ),
             ]
