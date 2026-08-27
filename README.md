@@ -112,6 +112,9 @@ swift test
 
 DocC documentation is included and built by CI.
 
+Because MBAsyncNetworkingXCFramework is private, CI and binary-release workflows require a fine-grained repository
+secret named `MOBVEN_PACKAGES_TOKEN` with read-only Contents access to `mobven/MBAsyncNetworkingXCFramework`.
+
 ## License
 
 MBIssueKit is available under the MIT license. See `LICENSE` for details.

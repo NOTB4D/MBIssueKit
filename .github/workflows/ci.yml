@@ -26,6 +26,18 @@ jobs:
       - name: Check out repository
         uses: actions/checkout@v7
 
+      - name: Configure private MBAsyncNetworking access
+        env:
+          MOBVEN_PACKAGES_TOKEN: ${{ secrets.MOBVEN_PACKAGES_TOKEN }}
+        run: |
+          test -n "${MOBVEN_PACKAGES_TOKEN}" || {
+            echo "MOBVEN_PACKAGES_TOKEN must contain read access to mobven/MBAsyncNetworkingXCFramework." >&2
+            exit 1
+          }
+          git config --global \
+            url."https://x-access-token:${MOBVEN_PACKAGES_TOKEN}@github.com/mobven/MBAsyncNetworkingXCFramework.git".insteadOf \
+            "https://github.com/mobven/MBAsyncNetworkingXCFramework.git"
+
       - name: Show Swift version
         run: swift --version
 
