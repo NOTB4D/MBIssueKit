@@ -74,7 +74,15 @@ public struct MBIssueJiraConfiguration: Sendable {
         "read:jira-work",
         "write:jira-work",
         "read:sprint:jira-software",
+        "write:sprint:jira-software",
         "report:personal-data",
+    ]
+
+    static let requiredSubmissionScopes = [
+        "read:jira-work",
+        "write:jira-work",
+        "read:sprint:jira-software",
+        "write:sprint:jira-software",
     ]
 
     private static func required(_ value: String, name: String) throws -> String {

@@ -9,8 +9,9 @@ Add the package URL to Swift Package dependencies and link the `MBIssueKit` libr
 ## Configure Jira
 
 Create an Atlassian OAuth 2.0 (3LO) app. Register a custom callback URL and enable the scopes in
-``MBIssueJiraConfiguration/defaultScopes``, including offline access, Jira read/write, sprint read, profile read, and
-Personal Data Reporting.
+``MBIssueJiraConfiguration/defaultScopes``, including offline access, Jira read/write, sprint read/write, profile read,
+and Personal Data Reporting. The `write:sprint:jira-software` scope is required to move a newly created task into the
+configured board's active sprint.
 
 ```swift
 import MBIssueKit
@@ -45,8 +46,12 @@ Task { @MainActor in
 }
 ```
 
-`projectKey`, `issueTypeID`, `boardID`, `sprintFieldID`, labels, and native Jira priority names belong to the host app's
+`projectKey`, `issueTypeID`, `boardID`, `sprintFieldID`, labels, and Jira priority preferences belong to the host app's
 destination and are never fixed by MBIssueKit. The provider requires exactly one active sprint on the configured board.
+Before creating the first issue, MBIssueKit reads Jira create metadata and resolves the selected severity to an allowed
+priority ID. A matching configured name is preferred, followed by MBIssueKit's semantic severity name. Localized or
+custom schemes should supply their exact Jira names; an unknown name is omitted rather than inferred from API ordering.
+Create metadata is paginated until the priority field is found, and resolved values are cached for the provider session.
 
 At startup, ``start(_:)`` moves the client secret into a device-only, non-synchronizing Keychain item. OAuth
 access and rotating refresh tokens, accessible cloud selection, reporter identity, and Personal Data Reporting schedule

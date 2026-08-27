@@ -30,6 +30,7 @@ struct MBIssueJiraDirectConfigurationTests {
         #expect(configuration.priorityNames[.blocker] == "Highest")
         #expect(configuration.scopes.contains("offline_access"))
         #expect(configuration.scopes.contains("write:jira-work"))
+        #expect(configuration.scopes.contains("write:sprint:jira-software"))
         #expect(configuration.scopes.contains("report:personal-data"))
     }
 

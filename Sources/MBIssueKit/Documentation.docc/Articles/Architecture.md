@@ -13,10 +13,14 @@ Understand how reports move from the overlay to a provider while keeping UI, sto
    the resulting authorization in a device-only Keychain item.
 6. Before submission, an expired access token is renewed with the rotating refresh token and the replacement token pair
    is persisted atomically through the credential vault.
-7. The Jira provider resolves exactly one active sprint for its configured board, creates one issue per local report, and
-   uploads each selected screenshot as an attachment.
+7. The Jira provider resolves exactly one active sprint for its configured board, finds or creates the Jira issue for
+   the local report, moves it into that sprint, and uploads each missing screenshot as an attachment.
 8. Each local entry independently records its provider ID, issue key, and URL. A failed report remains retryable without
    resubmitting entries that already succeeded.
+
+Each created Jira issue receives a deterministic label derived from the local report ID. If creation succeeds but a
+later sprint or attachment request fails, retry searches by that label and resumes the same issue. This makes retries
+idempotent across partial provider failures and prevents duplicate tasks.
 
 All OAuth, profile, sprint, issue, attachment, and Personal Data Reporting traffic is sent through the package's
 MBAsyncNetworking transport.

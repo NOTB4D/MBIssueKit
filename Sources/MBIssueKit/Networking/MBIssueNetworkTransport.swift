@@ -6,6 +6,63 @@ struct MBIssueRawNetworkResponse: Sendable {
     let headers: [String: String]
 }
 
+enum MBIssueHTTPResponseDecoder {
+    static func decode<Response: Decodable & Sendable>(
+        _ response: MBIssueRawNetworkResponse,
+        as _: Response.Type
+    ) throws -> Response {
+        try validate(response)
+        do {
+            return try JSONDecoder().decode(Response.self, from: response.data)
+        } catch {
+            throw MBIssueProviderError.invalidResponse
+        }
+    }
+
+    static func validate(_ response: MBIssueRawNetworkResponse) throws {
+        guard (200 ..< 300).contains(response.statusCode) else {
+            switch response.statusCode {
+            case 401:
+                throw MBIssueProviderError.authenticationFailed
+            case 403:
+                throw MBIssueProviderError.permissionDenied
+            default:
+                throw MBIssueProviderError.server(
+                    statusCode: response.statusCode,
+                    message: errorMessage(from: response.data)
+                )
+            }
+        }
+    }
+
+    private static func errorMessage(from data: Data) -> String {
+        guard let object = try? JSONSerialization.jsonObject(with: data) as? [String: Any] else {
+            return "The issue tracker request failed."
+        }
+        var messages: [String] = []
+        if let errorMessages = object["errorMessages"] as? [String] {
+            messages.append(contentsOf: errorMessages)
+        }
+        if let errors = object["errors"] as? [String: Any] {
+            messages.append(contentsOf: errors.keys.sorted().compactMap { key in
+                guard let value = errors[key] as? String, !value.isEmpty else { return nil }
+                return "\(key): \(value)"
+            })
+        }
+        for key in ["message", "error_description", "error"] {
+            if let value = object[key] as? String, !value.isEmpty {
+                messages.append(value)
+            }
+        }
+        let unique = messages.reduce(into: [String]()) { result, message in
+            guard !result.contains(message) else { return }
+            result.append(message)
+        }
+        let message = unique.joined(separator: " ")
+        return message.isEmpty ? "The issue tracker request failed." : String(message.prefix(1000))
+    }
+}
+
 protocol MBIssueNetworkTransport: Sendable {
     func send<Response: Decodable & Sendable>(
         _ request: URLRequest,
@@ -40,9 +97,9 @@ extension MBIssueNetworkTransport {
             _ request: URLRequest,
             decoding _: Response.Type
         ) async throws -> Response {
-            try await MBIssueNetworkEndpoint(urlRequest: request).fetch(
-                hasAuthentication: false,
-                using: client
+            try MBIssueHTTPResponseDecoder.decode(
+                await sendRaw(request),
+                as: Response.self
             )
         }
 
@@ -59,14 +116,6 @@ extension MBIssueNetworkTransport {
                 data: data,
                 headers: headers
             )
-        }
-    }
-
-    private struct MBIssueNetworkEndpoint: AsyncNetworkable {
-        let urlRequest: URLRequest
-
-        func request() async -> URLRequest {
-            urlRequest
         }
     }
 

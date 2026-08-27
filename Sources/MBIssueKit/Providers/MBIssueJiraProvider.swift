@@ -13,6 +13,7 @@ public actor MBIssueJiraProvider: MBIssueProvider {
     private let stateGenerator: @Sendable () -> String
     private var pendingClientSecret: String?
     private var pendingOAuthState: String?
+    private var cachedPriorityOptions: [MBIssueJiraPriorityOption]?
 
     public init(configuration: MBIssueJiraConfiguration) throws {
         let store = MBIssueKeychainSecureStore(
@@ -75,6 +76,10 @@ public actor MBIssueJiraProvider: MBIssueProvider {
         guard let authorization = try await vault.authorization() else {
             return MBIssueReporterConnection(provider: descriptor, reporter: nil)
         }
+        guard hasRequiredSubmissionScopes(authorization.scopes) else {
+            try await vault.deleteAuthorization()
+            return MBIssueReporterConnection(provider: descriptor, reporter: nil)
+        }
         return try connection(for: await managedAuthorization(authorization))
     }
 
@@ -129,6 +134,7 @@ public actor MBIssueJiraProvider: MBIssueProvider {
             throw MBIssueProviderError.jiraAccountUnavailable
         }
         let currentDate = now()
+        cachedPriorityOptions = nil
         let authorization = MBIssueJiraAuthorization(
             accessToken: token.accessToken,
             refreshToken: refreshToken,
@@ -147,6 +153,7 @@ public actor MBIssueJiraProvider: MBIssueProvider {
 
     public func disconnect() async throws {
         pendingOAuthState = nil
+        cachedPriorityOptions = nil
         try await vault.deleteAuthorization()
     }
 
@@ -162,19 +169,52 @@ public actor MBIssueJiraProvider: MBIssueProvider {
         )
         let page: SprintPage = try await transport.send(sprintRequest, decoding: SprintPage.self)
         let activeSprintID = try activeSprintID(in: page.values)
-        let createRequest = try MBIssueJiraRequestBuilder.createIssue(
-            entry: entry,
-            activeSprintID: activeSprintID,
+        let existingRequest = try MBIssueJiraRequestBuilder.existingIssue(
+            entryID: entry.id,
             configuration: configuration,
             cloudID: authorization.cloudID,
             accessToken: authorization.accessToken
         )
-        let created: CreateIssueResponse = try await transport.send(
-            createRequest,
-            decoding: CreateIssueResponse.self
+        let existingPage: IssueSearchResponse = try await transport.send(
+            existingRequest,
+            decoding: IssueSearchResponse.self
         )
+        let created: CreateIssueResponse
+        let existingAttachmentNames: Set<String>
+        if let existing = existingPage.issues.first {
+            created = CreateIssueResponse(id: existing.id, key: existing.key)
+            existingAttachmentNames = Set(existing.fields?.attachments.map(\.filename) ?? [])
+        } else {
+            let priorityID = try await priorityID(
+                for: entry.severity,
+                authorization: authorization
+            )
+            let createRequest = try MBIssueJiraRequestBuilder.createIssue(
+                entry: entry,
+                priorityID: priorityID,
+                configuration: configuration,
+                cloudID: authorization.cloudID,
+                accessToken: authorization.accessToken
+            )
+            created = try await transport.send(
+                createRequest,
+                decoding: CreateIssueResponse.self
+            )
+            existingAttachmentNames = []
+        }
+        let moveRequest = try MBIssueJiraRequestBuilder.moveIssue(
+            issueKey: created.key,
+            activeSprintID: activeSprintID,
+            cloudID: authorization.cloudID,
+            accessToken: authorization.accessToken
+        )
+        try MBIssueHTTPResponseDecoder.validate(await transport.sendRaw(moveRequest))
         var uploaded: [String] = []
         for url in screenshotURLs {
+            if existingAttachmentNames.contains(url.lastPathComponent) {
+                uploaded.append(url.lastPathComponent)
+                continue
+            }
             let request = try MBIssueJiraRequestBuilder.attachment(
                 fileURL: url,
                 issueKey: created.key,
@@ -204,6 +244,10 @@ public actor MBIssueJiraProvider: MBIssueProvider {
     private func validAuthorization() async throws -> MBIssueJiraAuthorization {
         try await prepare()
         guard var authorization = try await vault.authorization() else {
+            throw MBIssueProviderError.reporterAuthorizationRequired
+        }
+        guard hasRequiredSubmissionScopes(authorization.scopes) else {
+            try await vault.deleteAuthorization()
             throw MBIssueProviderError.reporterAuthorizationRequired
         }
         guard authorization.expiresAt <= now().addingTimeInterval(60) else {
@@ -236,6 +280,10 @@ public actor MBIssueJiraProvider: MBIssueProvider {
             authorization = storedAuthorization
         } else {
             authorization = try await validAuthorization()
+        }
+        guard hasRequiredSubmissionScopes(authorization.scopes) else {
+            try await vault.deleteAuthorization()
+            throw MBIssueProviderError.reporterAuthorizationRequired
         }
         guard authorization.nextPersonalDataReportAt.map({ $0 <= now() }) ?? true else {
             return authorization
@@ -357,11 +405,15 @@ public actor MBIssueJiraProvider: MBIssueProvider {
         guard let value else {
             return configuration.scopes
         }
-        let scopes = value.split(separator: " ").map(String.init)
-        guard Set(MBIssueJiraConfiguration.defaultScopes).isSubset(of: Set(scopes)) else {
+        let scopes = value.split(whereSeparator: \.isWhitespace).map(String.init)
+        guard hasRequiredSubmissionScopes(scopes) else {
             throw MBIssueProviderError.permissionDenied
         }
         return scopes
+    }
+
+    private func hasRequiredSubmissionScopes(_ scopes: [String]) -> Bool {
+        Set(MBIssueJiraConfiguration.requiredSubmissionScopes).isSubset(of: Set(scopes))
     }
 
     private func normalizedSite(_ value: String) -> URL? {
@@ -387,6 +439,52 @@ public actor MBIssueJiraProvider: MBIssueProvider {
         default:
             throw MBIssueProviderError.multipleActiveSprints(boardID: configuration.boardID)
         }
+    }
+
+    private func priorityID(
+        for severity: MBIssueSeverity,
+        authorization: MBIssueJiraAuthorization
+    ) async throws -> String? {
+        guard let preferredName = configuration.priorityNames[severity] else {
+            return nil
+        }
+        let options: [MBIssueJiraPriorityOption]
+        if let cachedPriorityOptions {
+            options = cachedPriorityOptions
+        } else {
+            var resolvedOptions: [MBIssueJiraPriorityOption] = []
+            var startAt = 0
+            while true {
+                let request = try MBIssueJiraRequestBuilder.createMetadata(
+                    configuration: configuration,
+                    cloudID: authorization.cloudID,
+                    accessToken: authorization.accessToken,
+                    startAt: startAt
+                )
+                let page: MBIssueJiraCreateMetadataPage = try await transport.send(
+                    request,
+                    decoding: MBIssueJiraCreateMetadataPage.self
+                )
+                if let priority = page.fields.first(where: {
+                    $0.fieldID == "priority" || $0.key == "priority"
+                }) {
+                    resolvedOptions = priority.allowedValues
+                    break
+                }
+                let nextStart = page.startAt + max(page.fields.count, page.maxResults)
+                guard nextStart > page.startAt, nextStart < page.total else {
+                    break
+                }
+                startAt = nextStart
+            }
+            options = resolvedOptions
+            cachedPriorityOptions = options
+        }
+        return MBIssueJiraPriorityResolver.resolve(
+            severity: severity,
+            preferredName: preferredName,
+            options: options
+        )
     }
 }
 
@@ -450,6 +548,32 @@ private struct SprintResponse: Decodable, Sendable {
 private struct CreateIssueResponse: Decodable, Sendable {
     let id: String
     let key: String
+}
+
+private struct IssueSearchResponse: Decodable, Sendable {
+    let issues: [Issue]
+
+    struct Issue: Decodable, Sendable {
+        let id: String
+        let key: String
+        let fields: Fields?
+    }
+
+    struct Fields: Decodable, Sendable {
+        let attachments: [AttachmentResponse]
+
+        private enum CodingKeys: String, CodingKey {
+            case attachments = "attachment"
+        }
+
+        init(from decoder: Decoder) throws {
+            let container = try decoder.container(keyedBy: CodingKeys.self)
+            attachments = try container.decodeIfPresent(
+                [AttachmentResponse].self,
+                forKey: .attachments
+            ) ?? []
+        }
+    }
 }
 
 private struct AttachmentResponse: Decodable, Sendable {

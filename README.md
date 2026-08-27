@@ -38,8 +38,8 @@ MBIssueKit uses
 ## Jira setup
 
 Create an Atlassian OAuth 2.0 (3LO) app and register the same custom callback URL used by the iOS application. Supply
-project, issue type, board, sprint field, labels, and priority mappings per host app; these values are not hardcoded in
-the SDK.
+project, issue type, board, sprint field, labels, and priority preferences per host app; these values are not hardcoded
+in the SDK.
 
 ```swift
 import MBIssueKit
@@ -73,6 +73,11 @@ Task { @MainActor in
 }
 ```
 
+Priority names are preferences rather than API values sent directly to Jira. MBIssueKit reads the selected project and
+issue type's create metadata, resolves the preference to Jira's stable priority ID, and caches the allowed values for
+the provider session. Configure the exact name exposed by that Jira project when it differs from MBIssueKit's semantic
+severity name. An unknown name is omitted instead of guessing from Jira's API ordering and sending an invalid priority.
+
 `start(_:)` transfers the supplied client secret to a device-only, non-synchronizing Keychain item. Jira access tokens,
 rotating refresh tokens, the selected Jira cloud, and the reporter profile are also persisted in Keychain. OAuth,
 active-sprint lookup, issue creation, screenshot upload, token renewal, and Atlassian Personal Data Reporting run inside
@@ -93,8 +98,10 @@ Use the shake gesture to toggle only the floating bar. The user opens the compos
 MBIssueKit.toggle()
 ```
 
-Each selected local report creates a separate Jira task in the configured active sprint. Screenshots are uploaded as
-attachments. Failed reports remain independently retryable, and exported ZIP files never contain provider credentials.
+Each selected local report creates a separate Jira task in the configured active sprint. A deterministic private label
+links that local report to its Jira task, so retrying after a partial failure reuses the task instead of creating a
+duplicate. Screenshots already present on that task are not uploaded again. Failed reports remain independently
+retryable, and exported ZIP files never contain provider credentials.
 
 ## Extending providers
 
