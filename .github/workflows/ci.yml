@@ -1,14 +1,8 @@
 name: CI
 
 on:
-  push:
-    branches:
-      - main
-      - develop
-  pull_request:
-    branches:
-      - main
-      - develop
+  # Temporarily manual-only until private dependency credentials are provisioned.
+  workflow_dispatch:
 
 permissions:
   contents: read
