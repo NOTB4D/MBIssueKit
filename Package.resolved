@@ -1,0 +1,24 @@
+{
+  "originHash" : "1fc787d05141417199898e2f0b5aa5d887956f6285a6680c3fb903ceab7343a2",
+  "pins" : [
+    {
+      "identity" : "mbasyncnetworkingxcframework",
+      "kind" : "remoteSourceControl",
+      "location" : "https://github.com/mobven/MBAsyncNetworkingXCFramework.git",
+      "state" : {
+        "revision" : "b932c5ec157a936b283a7faea1eb73f6d48ec475",
+        "version" : "1.0.0"
+      }
+    },
+    {
+      "identity" : "mobkitcore",
+      "kind" : "remoteSourceControl",
+      "location" : "https://github.com/mobven/MobKitCore.git",
+      "state" : {
+        "revision" : "89505471662dff413c71ee15ca51fb64c397f24c",
+        "version" : "1.0.1"
+      }
+    }
+  ],
+  "version" : 3
+}

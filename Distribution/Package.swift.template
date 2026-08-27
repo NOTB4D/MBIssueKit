@@ -4,15 +4,11 @@ import PackageDescription
 
 let package = Package(
     name: "MBIssueKit",
-    platforms: [
-        .iOS(.v15),
-        .macOS(.v12),
-    ],
+    platforms: [.iOS(.v15)],
     products: [
         .library(
             name: "MBIssueKit",
-            type: .dynamic,
-            targets: ["MBIssueKit"]
+            targets: ["MBIssueKit", "MBIssueKitDependencies"]
         ),
     ],
     dependencies: [
@@ -26,24 +22,23 @@ let package = Package(
         ),
     ],
     targets: [
-        .target(
+        .binaryTarget(
             name: "MBIssueKit",
+            url: "__BINARY_URL__",
+            checksum: "__CHECKSUM__"
+        ),
+        .target(
+            name: "MBIssueKitDependencies",
             dependencies: [
                 .product(
                     name: "MBAsyncNetworking",
-                    package: "MBAsyncNetworkingXCFramework",
-                    condition: .when(platforms: [.iOS])
+                    package: "MBAsyncNetworkingXCFramework"
                 ),
                 .product(
                     name: "MobKitCore",
-                    package: "MobKitCore",
-                    condition: .when(platforms: [.iOS])
+                    package: "MobKitCore"
                 ),
             ]
-        ),
-        .testTarget(
-            name: "MBIssueKitTests",
-            dependencies: ["MBIssueKit"]
         ),
     ]
 )

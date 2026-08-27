@@ -9,7 +9,7 @@
         private let anchorProvider: AnchorProvider
         private let browserSessionPolicy: MBIssueBrowserSessionPolicy
         private var activeSession: ASWebAuthenticationSession?
-        private var continuation: CheckedContinuation<Void, Error>?
+        private var continuation: CheckedContinuation<URL, Error>?
         private var expectedCallbackScheme: String?
 
         init(
@@ -20,15 +20,15 @@
             self.anchorProvider = anchorProvider
         }
 
-        func authorize(at url: URL, callbackURLScheme: String) async throws {
+        func authorize(at url: URL, callbackURLScheme: String) async throws -> URL {
             guard activeSession == nil else {
-                throw MBIssueGatewayError.authorizationInProgress
+                throw MBIssueProviderError.authorizationInProgress
             }
             guard anchorProvider() != nil else {
-                throw MBIssueGatewayError.missingPresentationAnchor
+                throw MBIssueProviderError.missingPresentationAnchor
             }
 
-            try await withTaskCancellationHandler {
+            return try await withTaskCancellationHandler {
                 try await withCheckedThrowingContinuation { continuation in
                     self.continuation = continuation
                     expectedCallbackScheme = callbackURLScheme
@@ -44,7 +44,7 @@
                     session.prefersEphemeralWebBrowserSession = browserSessionPolicy == .ephemeral
                     activeSession = session
                     guard session.start() else {
-                        finish(result: .failure(MBIssueGatewayError.authorizationCouldNotStart))
+                        finish(result: .failure(MBIssueProviderError.authorizationCouldNotStart))
                         return
                     }
                 }
@@ -66,7 +66,7 @@
             // to the host app instead of to ASWebAuthenticationSession. Resume the
             // same in-memory authorization and then dismiss the orphaned browser.
             let session = activeSession
-            finish(result: .success(()))
+            finish(result: .success(url))
             session?.cancel()
             return true
         }
@@ -75,20 +75,20 @@
             if let authenticationError = error as? ASWebAuthenticationSessionError,
                authenticationError.code == .canceledLogin
             {
-                finish(result: .failure(MBIssueGatewayError.authorizationCancelled))
+                finish(result: .failure(MBIssueProviderError.authorizationCancelled))
                 return
             }
             if let error {
-                finish(result: .failure(MBIssueGatewayError.transport(error.localizedDescription)))
+                finish(result: .failure(MBIssueProviderError.transport(error.localizedDescription)))
                 return
             }
             guard let callbackURL,
                   callbackURL.scheme?.lowercased() == expectedCallbackScheme
             else {
-                finish(result: .failure(MBIssueGatewayError.invalidAuthorizationCallback))
+                finish(result: .failure(MBIssueProviderError.invalidAuthorizationCallback))
                 return
             }
-            finish(result: .success(()))
+            finish(result: .success(callbackURL))
         }
 
         private func cancel() {
@@ -96,7 +96,7 @@
             finish(result: .failure(CancellationError()))
         }
 
-        private func finish(result: Result<Void, Error>) {
+        private func finish(result: Result<URL, Error>) {
             guard let continuation else { return }
             self.continuation = nil
             activeSession = nil

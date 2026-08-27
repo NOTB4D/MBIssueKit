@@ -2,73 +2,52 @@ import Foundation
 
 /// Runtime settings supplied by the host application.
 ///
-/// Provider credentials and field mappings intentionally do not belong here.
-/// The host configures only its authenticated issue-reporting backend.
 public struct MBIssueKitConfiguration: Sendable {
-    public let gateway: MBIssueGatewayConfiguration
+    public let provider: any MBIssueProvider
     public let environment: String
     public let additionalContext: [String: String]
 
+    /// Creates a configuration backed directly by an issue-tracker provider.
     public init(
-        gateway: MBIssueGatewayConfiguration,
+        provider: any MBIssueProvider,
         environment: String = "unspecified",
         additionalContext: [String: String] = [:]
     ) {
-        self.gateway = gateway
-        let normalizedEnvironment = environment.trimmingCharacters(in: .whitespacesAndNewlines)
-        self.environment = normalizedEnvironment.isEmpty ? "unspecified" : normalizedEnvironment
-        self.additionalContext = additionalContext.reduce(into: [:]) { result, item in
+        self.provider = provider
+        self.environment = Self.normalizedEnvironment(environment)
+        self.additionalContext = Self.normalizedContext(additionalContext)
+    }
+
+    /// Creates a configuration that connects to Jira directly from the SDK.
+    public init(
+        jira: MBIssueJiraConfiguration,
+        environment: String = "unspecified",
+        additionalContext: [String: String] = [:]
+    ) throws {
+        try self.init(
+            provider: MBIssueJiraProvider(configuration: jira),
+            environment: environment,
+            additionalContext: additionalContext
+        )
+    }
+
+    var destinationName: String {
+        provider.descriptor.destinationName
+    }
+
+    private static func normalizedEnvironment(_ environment: String) -> String {
+        let normalized = environment.trimmingCharacters(in: .whitespacesAndNewlines)
+        return normalized.isEmpty ? "unspecified" : normalized
+    }
+
+    private static func normalizedContext(_ context: [String: String]) -> [String: String] {
+        context.reduce(into: [:]) { result, item in
             let key = item.key.trimmingCharacters(in: .whitespacesAndNewlines)
             let value = item.value.trimmingCharacters(in: .whitespacesAndNewlines)
             if !key.isEmpty, !value.isEmpty {
                 result[key] = value
             }
         }
-    }
-}
-
-/// Connection details for the host application's issue-reporting gateway.
-///
-/// The access token is resolved at request time so token refreshes do not require
-/// reconfiguring the package. The closure must return the host application's own
-/// short-lived session token, never an issue tracker's credential.
-public struct MBIssueGatewayConfiguration: Sendable {
-    public typealias AccessTokenProvider = @Sendable () async throws -> String
-
-    public let baseURL: URL
-    public let displayName: String
-    public let reporterAuthentication: MBIssueReporterAuthenticationConfiguration?
-    let accessTokenProvider: AccessTokenProvider
-
-    public init(
-        baseURL: URL,
-        displayName: String = "Issue reporting",
-        reporterAuthentication: MBIssueReporterAuthenticationConfiguration? = nil,
-        accessTokenProvider: @escaping AccessTokenProvider
-    ) throws {
-        guard baseURL.scheme?.lowercased() == "https", baseURL.host != nil else {
-            throw MBIssueConfigurationError.insecureBaseURL
-        }
-        self.baseURL = try Self.normalizedBaseURL(baseURL)
-        let normalizedName = displayName.trimmingCharacters(in: .whitespacesAndNewlines)
-        self.displayName = normalizedName.isEmpty ? "Issue reporting" : normalizedName
-        self.reporterAuthentication = reporterAuthentication
-        self.accessTokenProvider = accessTokenProvider
-    }
-
-    private static func normalizedBaseURL(_ url: URL) throws -> URL {
-        guard var components = URLComponents(url: url, resolvingAgainstBaseURL: false) else {
-            throw MBIssueConfigurationError.invalidBaseURL
-        }
-        components.query = nil
-        components.fragment = nil
-        while components.path.hasSuffix("/") {
-            components.path.removeLast()
-        }
-        guard let normalized = components.url else {
-            throw MBIssueConfigurationError.invalidBaseURL
-        }
-        return normalized
     }
 }
 
@@ -81,75 +60,28 @@ public enum MBIssueBrowserSessionPolicy: Equatable, Sendable {
     case ephemeral
 }
 
-/// Provider-neutral interactive authorization settings owned by the host app.
-public struct MBIssueReporterAuthenticationConfiguration: Sendable {
-    public let callbackURLScheme: String
-    public let browserSessionPolicy: MBIssueBrowserSessionPolicy
-    public let authorizationTimeout: TimeInterval
-    public let pollingInterval: TimeInterval
-    let sessionStore: any MBIssueReporterSessionStoring
-
-    public init(
-        callbackURLScheme: String,
-        browserSessionPolicy: MBIssueBrowserSessionPolicy = .shared,
-        authorizationTimeout: TimeInterval = 300,
-        pollingInterval: TimeInterval = 1,
-        sessionStore: any MBIssueReporterSessionStoring
-    ) throws {
-        let scheme = callbackURLScheme.trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
-        let allowed = CharacterSet(charactersIn: "abcdefghijklmnopqrstuvwxyz0123456789+.-")
-        guard let first = scheme.unicodeScalars.first,
-              CharacterSet.lowercaseLetters.contains(first),
-              !scheme.unicodeScalars.contains(where: { !allowed.contains($0) }),
-              scheme != "http",
-              scheme != "https"
-        else {
-            throw MBIssueConfigurationError.invalidCallbackURLScheme
-        }
-        guard authorizationTimeout.isFinite,
-              pollingInterval.isFinite,
-              authorizationTimeout > 0,
-              pollingInterval > 0,
-              pollingInterval <= authorizationTimeout
-        else {
-            throw MBIssueConfigurationError.invalidAuthorizationTiming
-        }
-        self.callbackURLScheme = scheme
-        self.browserSessionPolicy = browserSessionPolicy
-        self.authorizationTimeout = authorizationTimeout
-        self.pollingInterval = pollingInterval
-        self.sessionStore = sessionStore
-    }
-}
-
 public enum MBIssueConfigurationError: LocalizedError, Equatable, Sendable {
-    case insecureBaseURL
-    case invalidBaseURL
-    case missingAccessToken
-    case missingReporterSession
-    case missingAuthorizationProof
-    case invalidCallbackURLScheme
-    case invalidAuthorizationTiming
-    case reporterAuthenticationUnavailable
+    case missingJiraValue(String)
+    case invalidJiraCallbackURL
+    case invalidJiraSiteURL
+    case invalidJiraRouting(String)
+    case invalidJiraScopes
+    case missingJiraClientSecret
 
     public var errorDescription: String? {
         switch self {
-        case .insecureBaseURL:
-            "The issue-reporting backend must use a valid HTTPS URL."
-        case .invalidBaseURL:
-            "The issue-reporting backend URL is invalid."
-        case .missingAccessToken:
-            "The host application did not provide an access token."
-        case .missingReporterSession:
-            "Connect an issue-tracker account before submitting reports."
-        case .missingAuthorizationProof:
-            "The reporter authorization proof is missing."
-        case .invalidCallbackURLScheme:
-            "Reporter authentication requires a valid custom callback URL scheme."
-        case .invalidAuthorizationTiming:
-            "Reporter authentication timeout and polling interval must be positive and valid."
-        case .reporterAuthenticationUnavailable:
-            "Reporter authentication is not configured by the host application."
+        case let .missingJiraValue(name):
+            "The Jira configuration value \(name) is required."
+        case .invalidJiraCallbackURL:
+            "Jira OAuth requires a valid app callback URL."
+        case .invalidJiraSiteURL:
+            "Jira Cloud site URL must be a valid HTTPS URL."
+        case let .invalidJiraRouting(name):
+            "The Jira routing value \(name) is invalid."
+        case .invalidJiraScopes:
+            "Jira OAuth scopes do not include the permissions required by MBIssueKit."
+        case .missingJiraClientSecret:
+            "Jira OAuth client secret is missing from Keychain."
         }
     }
 }

@@ -10,51 +10,32 @@
 
         private let store = MBIssueStore.shared
         private var configuration: MBIssueKitConfiguration?
-        private var gatewayClient: MBIssueGatewayClient?
-        private var reporterConnectionController = MBIssueReporterConnectionController(
-            managedProviderDisplayName: "Issue reporting"
-        )
+        private var provider: (any MBIssueProvider)?
+        private var reporterConnectionController: MBIssueReporterConnectionController?
         private var overlayWindow: MBIssueOverlayWindow?
         private weak var referenceWindow: UIWindow?
         private var submissionTasks: [UUID: Task<Void, Never>] = [:]
 
         private init() {}
 
-        func configure(
-            _ configuration: MBIssueKitConfiguration,
-            urlSession: URLSession
-        ) {
+        func configure(_ configuration: MBIssueKitConfiguration) {
             self.configuration = configuration
-            gatewayClient = MBIssueGatewayClient(
-                configuration: configuration.gateway,
-                session: urlSession
-            )
-            if let authentication = configuration.gateway.reporterAuthentication,
-               let gatewayClient
-            {
-                let webAuthorizer = MBIssueSystemWebAuthorizer(
-                    browserSessionPolicy: authentication.browserSessionPolicy
-                ) { [weak self] in
-                    self?.overlayWindow ?? self?.referenceWindow
-                }
-                reporterConnectionController = MBIssueReporterConnectionController(
-                    gateway: gatewayClient,
-                    callbackURLScheme: authentication.callbackURLScheme,
-                    webAuthorizer: webAuthorizer,
-                    authorizationTimeout: authentication.authorizationTimeout,
-                    pollingInterval: authentication.pollingInterval
-                )
-            } else {
-                reporterConnectionController = MBIssueReporterConnectionController(
-                    managedProviderDisplayName: configuration.gateway.displayName
-                )
+            provider = configuration.provider
+            let webAuthorizer = MBIssueSystemWebAuthorizer(
+                browserSessionPolicy: configuration.provider.browserSessionPolicy
+            ) { [weak self] in
+                self?.overlayWindow ?? self?.referenceWindow
             }
+            reporterConnectionController = MBIssueReporterConnectionController(
+                provider: configuration.provider,
+                webAuthorizer: webAuthorizer
+            )
         }
 
         func install(referenceWindow: UIWindow?) {
             guard overlayWindow == nil else { return }
             guard configuration != nil else {
-                assertionFailure("Call MBIssueKit.configure(_:) before install().")
+                assertionFailure("Await MBIssueKit.start(_:) before install().")
                 return
             }
 
@@ -149,7 +130,7 @@
         }
 
         func handleOpenURL(_ url: URL) -> Bool {
-            reporterConnectionController.handleOpenURL(url)
+            reporterConnectionController?.handleOpenURL(url) ?? false
         }
 
         private func presentComposerContent(
@@ -158,7 +139,8 @@
         ) {
             guard let root = overlayWindow?.rootViewController,
                   root.presentedViewController == nil,
-                  let configuration
+                  let configuration,
+                  let reporterConnectionController
             else {
                 return
             }
@@ -174,7 +156,7 @@
             )
             let view = MBIssueComposerView(
                 capturedImage: capturedImage,
-                destinationName: configuration.gateway.displayName,
+                destinationName: configuration.destinationName,
                 technicalContext: technicalContext,
                 onCancel: { [weak self] in self?.dismissPresented() },
                 onSaveDraft: { [weak self] draft, images in
@@ -200,7 +182,8 @@
         private func presentList() {
             guard let root = overlayWindow?.rootViewController,
                   root.presentedViewController == nil,
-                  let destinationName = configuration?.gateway.displayName
+                  let destinationName = configuration?.destinationName,
+                  let reporterConnectionController
             else {
                 return
             }
@@ -249,7 +232,7 @@
         }
 
         private func submit(ids: [UUID]) {
-            guard let gatewayClient else { return }
+            guard let provider else { return }
             var seenIDs: Set<UUID> = []
             let pendingIDs = ids.filter { id in
                 seenIDs.insert(id).inserted && submissionTasks[id] == nil
@@ -261,7 +244,7 @@
                 defer {
                     pendingIDs.forEach { submissionTasks[$0] = nil }
                 }
-                let submitter = MBIssueGatewaySubmitter(store: store, client: gatewayClient)
+                let submitter = MBIssueProviderSubmitter(store: store, provider: provider)
                 await submitter.submit(ids: pendingIDs)
             }
             pendingIDs.forEach { submissionTasks[$0] = task }

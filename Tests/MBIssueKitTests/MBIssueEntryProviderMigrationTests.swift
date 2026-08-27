@@ -39,8 +39,8 @@ struct MBIssueEntryProviderMigrationTests {
 
     @Test("New persistence contains no provider-specific property names")
     func encodesProviderNeutralFields() throws {
-        let entry = MBIssueEntry(
-            id: UUID(uuidString: "C7FB2F80-9CF6-4E18-928A-6AE08390DDEC")!,
+        let entry = try MBIssueEntry(
+            id: #require(UUID(uuidString: "C7FB2F80-9CF6-4E18-928A-6AE08390DDEC")),
             createdAt: Date(timeIntervalSince1970: 1_700_000_000),
             title: "Azure-ready report",
             description: "The package does not care which provider receives it.",
@@ -51,7 +51,7 @@ struct MBIssueEntryProviderMigrationTests {
                 providerDisplayName: "Azure DevOps",
                 issueID: "812",
                 issueKey: "812",
-                issueURL: try #require(URL(string: "https://dev.azure.com/example/project/_workitems/edit/812")),
+                issueURL: #require(URL(string: "https://dev.azure.com/example/project/_workitems/edit/812")),
                 createdAt: Date(timeIntervalSince1970: 1_700_000_000)
             ),
             submissionMessage: "Work item 812 created."

@@ -1,64 +1,90 @@
 # MBIssueKit
 
-`MBIssueKit` is an iOS development tool for creating focused issue-tracker tasks without leaving the host application.
+`MBIssueKit` is an iOS development SDK for creating Jira Cloud issues without leaving the host application.
 
-It provides a draggable overlay, a modern title/description composer, selectable severity, screenshot capture, image
-annotation, technical runtime context, local retry storage, detailed report history, ZIP export, and authenticated
-submission through the host application's backend. Reports can be saved as local drafts, selected together, and
-submitted as separate tasks in one batch action. It never collects application logs, network payloads, or
-state-management actions.
+It provides a draggable floating bar, a title/description composer, severity selection, screenshot capture and annotation,
+technical runtime context, local drafts and retry history, batch submission, report details, and ZIP export. It does not
+collect application logs, network payloads, or state-management actions.
 
 ## Requirements
 
 - iOS 15 or later
 - Swift 6.0 or later
 
+## Distribution
+
+Application teams consume the closed binary package, not this development repository. A version tag runs
+`Release XCFramework`, which produces a library-evolution-enabled `MBIssueKit.xcframework.zip`, dSYMs, and its SwiftPM
+checksum. Publish that artifact through the dedicated distribution repository using
+[`Distribution/Package.swift.template`](Distribution/Package.swift.template). The companion dependency target links
+MBAsyncNetworking and MobKitCore without exposing MBIssueKit source files.
+
+SDK development remains in this repository so its Swift Testing and DocC sources stay available to the SDK team.
+
 ## Installation
 
-Add `MBIssueKit` to your project with Swift Package Manager:
+Add the binary distribution repository with Swift Package Manager and link the `MBIssueKit` product to the application
+target:
 
 ```swift
 dependencies: [
-    .package(url: "https://github.com/NOTB4D/MBIssueKit.git", branch: "develop")
+    .package(url: "<MBIssueKit binary distribution repository>", from: "1.0.0")
 ]
 ```
 
-Then add `MBIssueKit` to your target dependencies and import it:
+MBIssueKit uses
+[`MBAsyncNetworkingXCFramework`](https://github.com/mobven/MBAsyncNetworkingXCFramework) for all provider network traffic.
+
+## Jira setup
+
+Create an Atlassian OAuth 2.0 (3LO) app and register the same custom callback URL used by the iOS application. Supply
+project, issue type, board, sprint field, labels, and priority mappings per host app; these values are not hardcoded in
+the SDK.
 
 ```swift
 import MBIssueKit
-```
 
-## Configuration
-
-Configure the host application's provider-neutral issue-reporting gateway. Provider credentials and routing stay on
-the server. For a backend that authorizes each reporter interactively, also provide a device-only session store:
-
-```swift
-let reporterSessionStore = MBIssueKeychainReporterSessionStore(
-    service: Bundle.main.bundleIdentifier! + ".MBIssueKit"
-)
-let reporterAuthentication = try MBIssueReporterAuthenticationConfiguration(
-    callbackURLScheme: "myapp-mbissue",
-    sessionStore: reporterSessionStore
-)
-let gateway = try MBIssueGatewayConfiguration(
-    baseURL: URL(string: "https://api.example.com")!,
-    displayName: "Sonex issue reporting",
-    reporterAuthentication: reporterAuthentication,
-    accessTokenProvider: {
-        guard let token = Session.shared.accessToken else {
-            throw SessionError.notAuthenticated
-        }
-        return token
-    }
+let jira = try MBIssueJiraConfiguration(
+    clientID: AppConfiguration.jiraClientID,
+    clientSecret: AppConfiguration.jiraClientSecret,
+    callbackURL: URL(string: "myapp-mbissue://oauth/callback")!,
+    siteURL: URL(string: "https://company.atlassian.net")!,
+    projectKey: "MOBILE",
+    issueTypeID: "10001",
+    boardID: 42,
+    sprintFieldID: "customfield_10020",
+    labels: ["ios"],
+    priorityNames: [
+        .blocker: "Highest",
+        .major: "High",
+        .minor: "Medium",
+    ]
 )
 
-MBIssueKit.configure(MBIssueKitConfiguration(
-    gateway: gateway,
+let issueKitConfiguration = try MBIssueKitConfiguration(
+    jira: jira,
     environment: "staging",
     additionalContext: ["API cluster": "staging-eu"]
-))
+)
+
+Task { @MainActor in
+    try await MBIssueKit.start(issueKitConfiguration)
+    MBIssueKit.install()
+}
+```
+
+`start(_:)` transfers the supplied client secret to a device-only, non-synchronizing Keychain item. Jira access tokens,
+rotating refresh tokens, the selected Jira cloud, and the reporter profile are also persisted in Keychain. OAuth,
+active-sprint lookup, issue creation, screenshot upload, token renewal, and Atlassian Personal Data Reporting run inside
+the package.
+
+Register the callback scheme in the app target and forward callbacks before the app's own deep-link router:
+
+```swift
+.onOpenURL { url in
+    guard !MBIssueKit.handleOpenURL(url) else { return }
+    appDeepLinkRouter.open(url)
+}
 ```
 
 Use the shake gesture to toggle only the floating bar. The user opens the composer from the bar:
@@ -67,33 +93,24 @@ Use the shake gesture to toggle only the floating bar. The user opens the compos
 MBIssueKit.toggle()
 ```
 
-`accessTokenProvider` is evaluated for every submission, so refreshed host-session tokens are used automatically. The
-package never accepts or stores a provider access/refresh token, API token, project key, work-item type, label, or
-priority mapping. The backend selects Jira, Azure DevOps, or another adapter and authenticates the host session before
-creating an issue. Short-lived reporter sessions are renewed silently through the authenticated backend and a rejected
-report is retried at most once with the same idempotency key. Interactive provider login is required again only when the
-server-side user/device binding or provider grant is unavailable or revoked. MBIssueKit therefore does not change when
-the destination board or provider changes.
+Each selected local report creates a separate Jira task in the configured active sprint. Screenshots are uploaded as
+attachments. Failed reports remain independently retryable, and exported ZIP files never contain provider credentials.
 
-Technical context includes the current screen/controller and navigation stack, application version/build, bundle,
-environment, OS, device identifier, architecture, appearance, locale, and screen size. The composer shows this data
-before submission. Reports can be inspected later and exported as a ZIP containing `report.md`, `metadata.json`, and
-screenshots. Provider credentials are never included in the app or ZIP.
+## Extending providers
 
-In the composer, **Save Draft** persists the report without contacting the backend. From **Issue reports**, choose the
-selection control, select any pending or failed reports, and use **Create Selected**. Each report is sent as an
-independent request and creates its own tracker task. Submitted and in-flight reports cannot be selected; a failure remains
-attached to only that local report and can be retried without resubmitting successful entries.
+The UI, capture, persistence, and batch layers depend on the provider-neutral `MBIssueProvider` protocol. A future Azure
+DevOps or other issue-tracker adapter can implement that boundary and be passed to `MBIssueKitConfiguration(provider:)`
+without changing the report workflow.
 
 ## Development
 
-The test suite uses Swift Testing and follows TDD. Run it with:
+The test suite uses Swift Testing and follows TDD:
 
 ```sh
 swift test
 ```
 
-DocC documentation is included in the package and is verified by CI.
+DocC documentation is included and built by CI.
 
 ## License
 

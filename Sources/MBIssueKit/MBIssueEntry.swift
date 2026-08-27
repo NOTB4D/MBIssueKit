@@ -150,7 +150,7 @@ public struct MBIssueEntry: Codable, Identifiable, Equatable, Sendable {
     }
 }
 
-// Source compatibility for hosts that adopted the earlier Jira-specific beta API.
+/// Source compatibility for hosts that adopted the earlier Jira-specific beta API.
 public extension MBIssueEntry {
     @available(*, deprecated, renamed: "MBIssueSubmissionStatus")
     typealias JiraStatus = MBIssueSubmissionStatus
