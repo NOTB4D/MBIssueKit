@@ -22,6 +22,7 @@ struct MBIssueJiraOAuthRequestTests {
         #expect(items["state"] == "one-time-state")
         #expect(items["audience"] == "api.atlassian.com")
         #expect(items["scope"]?.contains("offline_access") == true)
+        #expect(items["scope"]?.contains("write:sprint:jira-software") == true)
         #expect(items["scope"]?.contains("report:personal-data") == true)
     }
 

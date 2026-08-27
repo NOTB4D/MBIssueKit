@@ -19,7 +19,7 @@ struct MBIssueJiraPriorityResolverTests {
         ) == "2")
     }
 
-    @Test("A semantic severity name wins before ordinal fallback")
+    @Test("A semantic severity name is resolved when the configured name is stale")
     func resolvesSemanticSeverityName() {
         let options = [
             MBIssueJiraPriorityOption(id: "1", name: "Critical"),
@@ -34,22 +34,12 @@ struct MBIssueJiraPriorityResolverTests {
         ) == "3")
     }
 
-    @Test("A stale configured name falls back to the board priority order")
-    func resolvesLocalizedPriorityByRank() {
+    @Test("An unknown configured name is not guessed from API ordering")
+    func rejectsUnknownPriorityMapping() {
         #expect(MBIssueJiraPriorityResolver.resolve(
             severity: .blocker,
             preferredName: "Highest",
             options: localizedOptions
-        ) == "1")
-        #expect(MBIssueJiraPriorityResolver.resolve(
-            severity: .major,
-            preferredName: "High",
-            options: localizedOptions
-        ) == "2")
-        #expect(MBIssueJiraPriorityResolver.resolve(
-            severity: .minor,
-            preferredName: "Medium",
-            options: localizedOptions
-        ) == "3")
+        ) == nil)
     }
 }

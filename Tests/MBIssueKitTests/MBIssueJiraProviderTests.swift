@@ -11,7 +11,7 @@ struct MBIssueJiraProviderTests {
                 "access_token": "access-1",
                 "refresh_token": "refresh-1",
                 "expires_in": 3600,
-                "scope": "offline_access read:me read:jira-work write:jira-work read:sprint:jira-software report:personal-data",
+                "scope": "offline_access read:me read:jira-work write:jira-work read:sprint:jira-software write:sprint:jira-software report:personal-data",
             ]),
             json([[
                 "id": "cloud-1",
@@ -62,7 +62,7 @@ struct MBIssueJiraProviderTests {
                 "access_token": "access-1",
                 "refresh_token": "refresh-1",
                 "expires_in": 3600,
-                "scope": "offline_access read:me read:jira-work write:jira-work read:sprint:jira-software",
+                "scope": "offline_access read:me read:jira-work write:jira-work read:sprint:jira-software write:sprint:jira-software",
             ]),
             json([[
                 "id": "cloud-1",
@@ -118,18 +118,40 @@ struct MBIssueJiraProviderTests {
         }
     }
 
+    @Test("A stored authorization missing sprint write access is disconnected")
+    func disconnectsAuthorizationMissingSprintWriteScope() async throws {
+        let vault = MBIssueJiraCredentialVault(store: JiraInMemorySecureStore())
+        try await vault.bootstrap(clientSecret: "app-client-secret")
+        try await vault.saveAuthorization(.fixture(scopes: [
+            "read:jira-work",
+            "write:jira-work",
+            "read:sprint:jira-software",
+        ]))
+        let provider = try MBIssueJiraProvider(
+            configuration: jiraConfiguration(),
+            transport: JiraQueueTransport(responses: []),
+            vault: vault
+        )
+
+        let connection = try await provider.connection()
+
+        #expect(connection.reporter == nil)
+        #expect(try await vault.authorization() == nil)
+    }
+
     @Test("Issue creation resolves active sprint and uploads every screenshot")
     func createsIssueInActiveSprint() async throws {
         let transport = try JiraQueueTransport(
             responses: [
                 json(["values": [["id": 77, "name": "Sprint 77", "state": "active"]]]),
+                json(["issues": []]),
                 json([
                     "fields": [[
                         "fieldId": "priority",
                         "key": "priority",
                         "allowedValues": [
                             ["id": "1", "name": "Kritik"],
-                            ["id": "2", "name": "Yüksek"],
+                            ["id": "2", "name": "High"],
                             ["id": "3", "name": "Orta"],
                         ],
                     ]],
@@ -166,24 +188,123 @@ struct MBIssueJiraProviderTests {
         #expect(receipt.issueURL.absoluteString == "https://mobven.atlassian.net/browse/MAD-999")
         #expect(receipt.uploadedFileNames == ["one.png", "two.png"])
         let requests = await transport.requests
-        #expect(requests.count == 5)
+        #expect(requests.count == 6)
         #expect(requests[0].url?.path == "/ex/jira/cloud-1/rest/agile/1.0/board/1026/sprint")
-        #expect(requests[1].url?.path == "/ex/jira/cloud-1/rest/api/3/issue/createmeta/MAD/issuetypes/10841")
-        #expect(requests[2].url?.path == "/ex/jira/cloud-1/rest/api/3/issue")
-        let createBody = try #require(requests[2].httpBody)
+        #expect(requests[1].url?.path == "/ex/jira/cloud-1/rest/api/3/search/jql")
+        #expect(requests[2].url?.path == "/ex/jira/cloud-1/rest/api/3/issue/createmeta/MAD/issuetypes/10841")
+        #expect(requests[3].url?.path == "/ex/jira/cloud-1/rest/api/3/issue")
+        let createBody = try #require(requests[3].httpBody)
         let object = try #require(JSONSerialization.jsonObject(with: createBody) as? [String: Any])
         let fields = try #require(object["fields"] as? [String: Any])
         #expect(fields["summary"] as? String == "Login button does not respond")
         #expect(fields["customfield_10020"] == nil)
         #expect((fields["project"] as? [String: String])?["key"] == "MAD")
         #expect((fields["priority"] as? [String: String])?["id"] == "2")
+        #expect((fields["labels"] as? [String])?.contains(
+            "mbissuekit-7d106d740e1e41b7b9dcc6e455f2d5b0"
+        ) == true)
         let moveRequest = try #require(await transport.rawRequests.first)
         #expect(moveRequest.url?.path == "/ex/jira/cloud-1/rest/agile/1.0/sprint/77/issue")
         let moveBody = try #require(moveRequest.httpBody)
         let moveObject = try #require(JSONSerialization.jsonObject(with: moveBody) as? [String: Any])
         #expect(moveObject["issues"] as? [String] == ["MAD-999"])
-        #expect(requests[3].value(forHTTPHeaderField: "X-Atlassian-Token") == "no-check")
-        #expect(requests[3].httpBody?.isEmpty == false)
+        #expect(requests[4].value(forHTTPHeaderField: "X-Atlassian-Token") == "no-check")
+        #expect(requests[4].httpBody?.isEmpty == false)
+    }
+
+    @Test("Create metadata pagination finds the configured priority field")
+    func paginatesCreateMetadata() async throws {
+        let transport = try JiraQueueTransport(
+            responses: [
+                json(["values": [["id": 77, "name": "Sprint", "state": "active"]]]),
+                json(["issues": []]),
+                json([
+                    "startAt": 0,
+                    "maxResults": 1,
+                    "total": 2,
+                    "fields": [["fieldId": "summary", "key": "summary"]],
+                ]),
+                json([
+                    "startAt": 1,
+                    "maxResults": 1,
+                    "total": 2,
+                    "fields": [[
+                        "fieldId": "priority",
+                        "key": "priority",
+                        "allowedValues": [["id": "2", "name": "High"]],
+                    ]],
+                ]),
+                json(["id": "10001", "key": "MAD-1001"]),
+            ],
+            rawResponses: [MBIssueRawNetworkResponse(statusCode: 204, data: Data(), headers: [:])]
+        )
+        let vault = MBIssueJiraCredentialVault(store: JiraInMemorySecureStore())
+        try await vault.bootstrap(clientSecret: "app-client-secret")
+        try await vault.saveAuthorization(.fixture())
+        let provider = try MBIssueJiraProvider(
+            configuration: jiraConfiguration(),
+            transport: transport,
+            vault: vault
+        )
+
+        _ = try await provider.submit(entry: .fixture(), screenshotURLs: [])
+
+        let requests = await transport.requests
+        let metadataRequests = requests.filter { $0.url?.path.contains("/issue/createmeta/") == true }
+        #expect(metadataRequests.count == 2)
+        let firstMetadataURL = try #require(metadataRequests[0].url)
+        let secondMetadataURL = try #require(metadataRequests[1].url)
+        #expect(URLComponents(url: firstMetadataURL, resolvingAgainstBaseURL: false)?
+            .queryItems?.first(where: { $0.name == "startAt" })?.value == "0")
+        #expect(URLComponents(url: secondMetadataURL, resolvingAgainstBaseURL: false)?
+            .queryItems?.first(where: { $0.name == "startAt" })?.value == "1")
+        let createRequest = try #require(requests.first(where: { $0.url?.path.hasSuffix("/rest/api/3/issue") == true }))
+        let body = try #require(createRequest.httpBody)
+        let object = try #require(JSONSerialization.jsonObject(with: body) as? [String: Any])
+        let fields = try #require(object["fields"] as? [String: Any])
+        #expect((fields["priority"] as? [String: String])?["id"] == "2")
+    }
+
+    @Test("Retry reuses an existing Jira issue and skips uploaded screenshots")
+    func reusesExistingIssueOnRetry() async throws {
+        let transport = try JiraQueueTransport(
+            responses: [
+                json(["values": [["id": 77, "name": "Sprint", "state": "active"]]]),
+                json(["issues": [[
+                    "id": "10001",
+                    "key": "MAD-1002",
+                    "fields": [
+                        "attachment": [["id": "attachment-1", "filename": "one.png"]],
+                    ],
+                ]]]),
+                json([["id": "attachment-2", "filename": "two.png"]]),
+            ],
+            rawResponses: [MBIssueRawNetworkResponse(statusCode: 204, data: Data(), headers: [:])]
+        )
+        let vault = MBIssueJiraCredentialVault(store: JiraInMemorySecureStore())
+        try await vault.bootstrap(clientSecret: "app-client-secret")
+        try await vault.saveAuthorization(.fixture())
+        let provider = try MBIssueJiraProvider(
+            configuration: jiraConfiguration(),
+            transport: transport,
+            vault: vault
+        )
+        let temporaryDirectory = FileManager.default.temporaryDirectory
+            .appendingPathComponent(UUID().uuidString, isDirectory: true)
+        try FileManager.default.createDirectory(at: temporaryDirectory, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: temporaryDirectory) }
+        let first = temporaryDirectory.appendingPathComponent("one.png")
+        let second = temporaryDirectory.appendingPathComponent("two.png")
+        try Data("first".utf8).write(to: first)
+        try Data("second".utf8).write(to: second)
+
+        let receipt = try await provider.submit(entry: .fixture(), screenshotURLs: [first, second])
+
+        #expect(receipt.issueKey == "MAD-1002")
+        #expect(receipt.uploadedFileNames == ["one.png", "two.png"])
+        let requests = await transport.requests
+        #expect(requests.contains(where: { $0.url?.path.hasSuffix("/rest/api/3/issue") == true }) == false)
+        #expect(requests.filter { $0.url?.path.hasSuffix("/attachments") == true }.count == 1)
     }
 
     @Test("Expired access is refreshed with the Keychain client secret")
@@ -194,9 +315,10 @@ struct MBIssueJiraProviderTests {
                     "access_token": "access-2",
                     "refresh_token": "refresh-2",
                     "expires_in": 3600,
-                    "scope": "offline_access read:me read:jira-work write:jira-work read:sprint:jira-software report:personal-data",
+                    "scope": "offline_access read:me read:jira-work write:jira-work read:sprint:jira-software write:sprint:jira-software report:personal-data",
                 ]),
                 json(["values": [["id": 77, "name": "Sprint", "state": "active"]]]),
+                json(["issues": []]),
                 json([
                     "fields": [[
                         "fieldId": "priority",
@@ -362,6 +484,7 @@ private actor JiraInMemorySecureStore: MBIssueSecureStoring {
 private extension MBIssueJiraAuthorization {
     static func fixture(
         expiresAt: Date = .distantFuture,
+        scopes: [String] = MBIssueJiraConfiguration.defaultScopes,
         personalDataRetrievedAt: Date = Date(timeIntervalSince1970: 1_700_000_000),
         nextPersonalDataReportAt: Date? = .distantFuture
     ) -> Self {
@@ -369,7 +492,7 @@ private extension MBIssueJiraAuthorization {
             accessToken: "access-1",
             refreshToken: "refresh-1",
             expiresAt: expiresAt,
-            scopes: MBIssueJiraConfiguration.defaultScopes,
+            scopes: scopes,
             cloudID: "cloud-1",
             accountID: "account-1",
             displayName: "QA User",

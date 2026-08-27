@@ -106,7 +106,9 @@ enum MBIssueJiraRequestBuilder {
     static func createMetadata(
         configuration: MBIssueJiraConfiguration,
         cloudID: String,
-        accessToken: String
+        accessToken: String,
+        startAt: Int = 0,
+        maxResults: Int = 50
     ) throws -> URLRequest {
         let projectKey = configuration.projectKey.addingPercentEncoding(
             withAllowedCharacters: .urlPathAllowed
@@ -118,11 +120,41 @@ enum MBIssueJiraRequestBuilder {
         guard var components = URLComponents(string: "https://api.atlassian.com\(path)") else {
             throw MBIssueProviderError.invalidResponse
         }
-        components.queryItems = [URLQueryItem(name: "maxResults", value: "100")]
+        components.queryItems = [
+            URLQueryItem(name: "startAt", value: String(startAt)),
+            URLQueryItem(name: "maxResults", value: String(maxResults)),
+        ]
         guard let url = components.url else {
             throw MBIssueProviderError.invalidResponse
         }
         return authorizedRequest(url: url, method: "GET", accessToken: accessToken)
+    }
+
+    static func existingIssue(
+        entryID: UUID,
+        configuration: MBIssueJiraConfiguration,
+        cloudID: String,
+        accessToken: String
+    ) throws -> URLRequest {
+        guard let url = URL(
+            string: "https://api.atlassian.com/ex/jira/\(cloudID)/rest/api/3/search/jql"
+        ) else {
+            throw MBIssueProviderError.invalidResponse
+        }
+        let label = reportLabel(for: entryID)
+        let project = jqlString(configuration.projectKey)
+        let quotedLabel = jqlString(label)
+        var request = authorizedRequest(url: url, method: "POST", accessToken: accessToken)
+        request.setValue("application/json", forHTTPHeaderField: "Content-Type")
+        request.httpBody = try JSONSerialization.data(
+            withJSONObject: [
+                "jql": "project = \(project) AND labels = \(quotedLabel) ORDER BY created DESC",
+                "fields": ["attachment"],
+                "maxResults": 2,
+            ],
+            options: [.sortedKeys]
+        )
+        return request
     }
 
     static func createIssue(
@@ -140,7 +172,10 @@ enum MBIssueJiraRequestBuilder {
             "issuetype": ["id": configuration.issueTypeID],
             "summary": entry.title,
             "description": descriptionDocument(for: entry),
-            "labels": Array(Set(configuration.labels + ["severity-\(entry.severity.rawValue)"])).sorted(),
+            "labels": Array(Set(configuration.labels + [
+                "severity-\(entry.severity.rawValue)",
+                reportLabel(for: entry.id),
+            ])).sorted(),
         ]
         if let priorityID {
             fields["priority"] = ["id": priorityID]
@@ -152,6 +187,12 @@ enum MBIssueJiraRequestBuilder {
             options: [.sortedKeys]
         )
         return request
+    }
+
+    static func reportLabel(for entryID: UUID) -> String {
+        "mbissuekit-" + entryID.uuidString
+            .lowercased()
+            .replacingOccurrences(of: "-", with: "")
     }
 
     static func moveIssue(
@@ -235,6 +276,13 @@ enum MBIssueJiraRequestBuilder {
         request.setValue("Bearer \(accessToken)", forHTTPHeaderField: "Authorization")
         request.setValue("application/json", forHTTPHeaderField: "Accept")
         return request
+    }
+
+    private static func jqlString(_ value: String) -> String {
+        let escaped = value
+            .replacingOccurrences(of: "\\", with: "\\\\")
+            .replacingOccurrences(of: "\"", with: "\\\"")
+        return "\"\(escaped)\""
     }
 
     private static func descriptionDocument(for entry: MBIssueEntry) -> [String: Any] {

@@ -20,13 +20,7 @@ enum MBIssueJiraPriorityResolver {
         if let semantic = options.first(where: { normalized($0.name) == semanticName }) {
             return semantic.id
         }
-        let index = switch severity {
-        case .blocker: 0
-        case .major: 1
-        case .minor: 2
-        case .cosmetic: 3
-        }
-        return options[min(index, options.count - 1)].id
+        return nil
     }
 
     private static func normalized(_ value: String) -> String {
@@ -37,7 +31,25 @@ enum MBIssueJiraPriorityResolver {
 }
 
 struct MBIssueJiraCreateMetadataPage: Decodable, Sendable {
+    let startAt: Int
+    let maxResults: Int
+    let total: Int
     let fields: [Field]
+
+    private enum CodingKeys: String, CodingKey {
+        case startAt
+        case maxResults
+        case total
+        case fields
+    }
+
+    init(from decoder: Decoder) throws {
+        let container = try decoder.container(keyedBy: CodingKeys.self)
+        fields = try container.decode([Field].self, forKey: .fields)
+        startAt = try container.decodeIfPresent(Int.self, forKey: .startAt) ?? 0
+        maxResults = try container.decodeIfPresent(Int.self, forKey: .maxResults) ?? fields.count
+        total = try container.decodeIfPresent(Int.self, forKey: .total) ?? fields.count
+    }
 
     struct Field: Decodable, Sendable {
         let fieldID: String
