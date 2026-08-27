@@ -1,6 +1,6 @@
 import Foundation
 
-/// Metadata describing the issue tracker selected by the host backend.
+/// Metadata describing the issue tracker configured by the host application.
 public struct MBIssueTrackerProvider: Codable, Equatable, Sendable {
     public let id: String
     public let displayName: String
@@ -20,7 +20,7 @@ public struct MBIssueTrackerProvider: Codable, Equatable, Sendable {
     }
 }
 
-/// The verified human identity connected to the issue-reporting gateway.
+/// The verified human identity connected to the issue tracker.
 public struct MBIssueReporterIdentity: Codable, Equatable, Sendable {
     public let accountID: String
     public let displayName: String
@@ -33,7 +33,7 @@ public struct MBIssueReporterIdentity: Codable, Equatable, Sendable {
     }
 }
 
-/// Current provider and verified reporter returned by the host backend.
+/// Current provider and verified reporter returned by the provider adapter.
 public struct MBIssueReporterConnection: Codable, Equatable, Sendable {
     public let provider: MBIssueTrackerProvider
     public let reporter: MBIssueReporterIdentity?
@@ -52,28 +52,4 @@ public struct MBIssueReporterConnection: Codable, Equatable, Sendable {
     public var isConnected: Bool {
         reporter != nil
     }
-}
-
-struct MBIssueReporterAuthorizationChallenge: Decodable, Equatable, Sendable {
-    let authorizationID: UUID
-    let authorizationURL: URL
-    let proof: String
-    let expiresAt: Date
-}
-
-enum MBIssueReporterAuthorizationStatus: String, Decodable, Equatable, Sendable {
-    case pending
-    case ready
-    case failed
-    case expired
-    case consumed
-}
-
-struct MBIssueReporterAuthorizationStatusResponse: Decodable, Equatable, Sendable {
-    let status: MBIssueReporterAuthorizationStatus
-}
-
-struct MBIssueReporterSessionResponse: Decodable, Equatable, Sendable {
-    let reporterSessionToken: String
-    let connection: MBIssueReporterConnection
 }

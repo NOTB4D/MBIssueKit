@@ -67,10 +67,6 @@
                         .clipShape(Circle())
                 }
                 .accessibilityLabel("Reporter account actions")
-            case .notRequired:
-                Image(systemName: "lock.shield.fill")
-                    .foregroundColor(MBIssueTheme.success)
-                    .accessibilityLabel("Managed securely by the host")
             }
         }
 
@@ -84,8 +80,6 @@
                 "Authorizing \(provider?.displayName ?? "issue tracker")"
             case let .connected(connection):
                 connection.reporter?.displayName ?? "Verified reporter"
-            case let .notRequired(provider):
-                provider.displayName
             case let .failed(provider, _):
                 "\(provider?.displayName ?? "Reporter") connection"
             }
@@ -101,8 +95,6 @@
                 "Complete the secure sign-in in the browser."
             case let .connected(connection):
                 "\(connection.provider.displayName) · \(connection.provider.destinationName)"
-            case let .notRequired(provider):
-                "\(provider.destinationName) · Managed by the host backend"
             case let .failed(_, message):
                 message
             }
@@ -110,7 +102,7 @@
 
         private var iconName: String {
             switch controller.state {
-            case .connected, .notRequired:
+            case .connected:
                 "person.crop.circle.badge.checkmark"
             case .failed:
                 "exclamationmark.shield.fill"
@@ -121,7 +113,7 @@
 
         private var iconColor: Color {
             switch controller.state {
-            case .connected, .notRequired:
+            case .connected:
                 MBIssueTheme.success
             case .failed:
                 MBIssueTheme.failure

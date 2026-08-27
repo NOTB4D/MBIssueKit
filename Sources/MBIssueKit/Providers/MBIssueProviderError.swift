@@ -1,6 +1,6 @@
 import Foundation
 
-public enum MBIssueGatewayError: LocalizedError, Equatable, Sendable {
+public enum MBIssueProviderError: LocalizedError, Equatable, Sendable {
     case invalidResponse
     case authenticationFailed
     case permissionDenied
@@ -17,11 +17,15 @@ public enum MBIssueGatewayError: LocalizedError, Equatable, Sendable {
     case attachmentUnreadable(String)
     case transport(String)
     case server(statusCode: Int, message: String)
+    case jiraSiteUnavailable
+    case jiraAccountUnavailable
+    case noActiveSprint(boardID: Int)
+    case multipleActiveSprints(boardID: Int)
 
     public var errorDescription: String? {
         switch self {
         case .invalidResponse:
-            "The issue-reporting service returned an invalid response."
+            "The issue tracker returned an invalid response."
         case .authenticationFailed:
             "Your session has expired. Sign in again and retry."
         case .permissionDenied:
@@ -29,7 +33,7 @@ public enum MBIssueGatewayError: LocalizedError, Equatable, Sendable {
         case .reporterAuthorizationRequired:
             "Connect your issue-tracker account before submitting reports."
         case .insecureAuthorizationURL:
-            "The issue-reporting service returned an insecure authorization URL."
+            "The issue tracker returned an insecure authorization URL."
         case .authorizationCancelled:
             "Issue-tracker authorization was cancelled."
         case .authorizationExpired:
@@ -49,9 +53,17 @@ public enum MBIssueGatewayError: LocalizedError, Equatable, Sendable {
         case let .attachmentUnreadable(fileName):
             "The screenshot \(fileName) could not be read."
         case let .transport(message):
-            "The issue-reporting service could not be reached: \(message)"
+            "The issue tracker could not be reached: \(message)"
         case let .server(statusCode, message):
             "Issue-reporting error (\(statusCode)): \(message)"
+        case .jiraSiteUnavailable:
+            "The Jira account cannot access the configured site."
+        case .jiraAccountUnavailable:
+            "The connected Jira account is not active."
+        case let .noActiveSprint(boardID):
+            "Jira board \(boardID) has no active sprint."
+        case let .multipleActiveSprints(boardID):
+            "Jira board \(boardID) has multiple active sprints."
         }
     }
 }

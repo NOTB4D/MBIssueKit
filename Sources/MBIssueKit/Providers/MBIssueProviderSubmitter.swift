@@ -1,13 +1,14 @@
 import Foundation
 
+/// Delivers local reports through the configured provider one at a time.
 @MainActor
-final class MBIssueGatewaySubmitter {
+final class MBIssueProviderSubmitter {
     private let store: MBIssueStore
-    private let client: MBIssueGatewayClient
+    private let provider: any MBIssueProvider
 
-    init(store: MBIssueStore, client: MBIssueGatewayClient) {
+    init(store: MBIssueStore, provider: any MBIssueProvider) {
         self.store = store
-        self.client = client
+        self.provider = provider
     }
 
     func submit(ids: [UUID]) async {
@@ -23,7 +24,7 @@ final class MBIssueGatewaySubmitter {
         }
         store.updateSubmissionState(id: id, status: .submitting, submission: entry.submission)
         do {
-            let submission = try await client.submit(
+            let submission = try await provider.submit(
                 entry: entry,
                 screenshotURLs: store.screenshotURLs(for: entry)
             )

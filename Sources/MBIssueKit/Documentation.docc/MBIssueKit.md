@@ -1,22 +1,23 @@
-# ``MBIssueKit``
+# MBIssueKit
 
-Create detailed, reproducible issue-tracker tasks from an iOS app without collecting application logs.
+Create detailed Jira Cloud tasks from an iOS app without collecting application logs.
 
 ## Overview
 
-MBIssueKit installs a draggable overlay above a host application. A user can enter a dedicated title and description,
-choose severity, review the technical context, annotate an automatically captured screenshot, add images from Photos,
-and create a task through the host application's backend. Reports can be saved locally as drafts and later selected
-for batch submission. Every selected report creates a separate task, while failures remain independently retryable.
-Local reports have a detail screen and can be exported as a ZIP archive.
+MBIssueKit installs a draggable overlay above the host application. A reporter enters a dedicated title and description,
+chooses severity, reviews captured technical context, annotates an automatically captured screenshot, and can add images
+from Photos. Reports may be saved as drafts, inspected in detail, exported as ZIP archives, and submitted individually or
+as a selected batch.
 
-The report combines the user's text with the technical context shown in the composer. MBIssueKit does not
-collect application logs, network payloads, credentials, or state-management actions such as TCA actions.
+The built-in ``MBIssueJiraProvider`` performs Jira OAuth, active-sprint lookup, issue creation, and attachment upload
+directly. It persists the supplied OAuth client secret, access and rotating refresh tokens, selected Jira cloud, and
+reporter identity in device-only Keychain items. All provider network requests use MBAsyncNetworking.
 
-> Important: MBIssueKit receives only the host application's short-lived session token and, when interactive reporter
-> authorization is enabled, a revocable opaque backend session. Issue-tracker OAuth/API credentials and routing belong
-> exclusively on the backend and must never ship in an iOS binary. Expired reporter sessions are renewed through the
-> authenticated host backend without exposing provider credentials to the app.
+The domain and UI layers depend on ``MBIssueProvider``. Another issue tracker can therefore be introduced as a provider
+without changing capture, annotation, persistence, or batch-submission behavior.
+
+The report contains the user's title and description, selected severity, visible technical context, and selected images.
+MBIssueKit does not collect application logs, network payloads, or state-management actions such as TCA actions.
 
 ## Topics
 
@@ -25,16 +26,24 @@ collect application logs, network payloads, credentials, or state-management act
 - <doc:Configuration>
 - <doc:Architecture>
 
-### Public API
+### Provider API
 
-- ``MBIssueKit``
+- ``start(_:)``
+- ``install(referenceWindow:)``
+- ``toggle(referenceWindow:)``
+- ``present(referenceWindow:)``
+- ``remove()``
+- ``handleOpenURL(_:)``
 - ``MBIssueKitConfiguration``
-- ``MBIssueGatewayConfiguration``
-- ``MBIssueReporterAuthenticationConfiguration``
-- ``MBIssueReporterSessionStoring``
-- ``MBIssueKeychainReporterSessionStore``
+- ``MBIssueProvider``
+- ``MBIssueJiraConfiguration``
+- ``MBIssueJiraProvider``
 - ``MBIssueTrackerProvider``
 - ``MBIssueReporterConnection``
+- ``MBIssueBrowserSessionPolicy``
+
+### Report API
+
 - ``MBIssueDraft``
 - ``MBIssueEntry``
 - ``MBIssueSeverity``
@@ -45,4 +54,4 @@ collect application logs, network payloads, credentials, or state-management act
 
 - ``MBIssueConfigurationError``
 - ``MBIssueValidationError``
-- ``MBIssueGatewayError``
+- ``MBIssueProviderError``

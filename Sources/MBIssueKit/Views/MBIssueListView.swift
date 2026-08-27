@@ -582,7 +582,7 @@
                 ),
             ]))
             .environmentObject(MBIssueReporterConnectionController(
-                managedProviderDisplayName: "Preview tracker"
+                previewProviderDisplayName: "Preview tracker"
             ))
             .preferredColorScheme(.dark)
         }
@@ -599,7 +599,7 @@
             )
             .environmentObject(MBIssueStore.preview())
             .environmentObject(MBIssueReporterConnectionController(
-                managedProviderDisplayName: "Preview tracker"
+                previewProviderDisplayName: "Preview tracker"
             ))
             .preferredColorScheme(.dark)
         }

@@ -1,83 +1,65 @@
 # Configuring MBIssueKit
 
-Connect MBIssueKit to an authenticated endpoint owned by the host application.
+Configure Jira OAuth and routing for each host application, then start MBIssueKit once during application startup.
 
 ## Add the package
 
-Add the package URL to the host application's Swift Package dependencies and link the `MBIssueKit` library product to
-the app target.
+Add the package URL to Swift Package dependencies and link the `MBIssueKit` library product to the app target.
 
-## Configure the gateway
+## Configure Jira
 
-MBIssueKit never accepts provider credentials or field mappings. Configure only the host application's HTTPS backend
-and provide the signed-in user's current Sonex access token at request time.
-
-Create the configuration directly:
+Create an Atlassian OAuth 2.0 (3LO) app. Register a custom callback URL and enable the scopes in
+``MBIssueJiraConfiguration/defaultScopes``, including offline access, Jira read/write, sprint read, profile read, and
+Personal Data Reporting.
 
 ```swift
 import MBIssueKit
 
-let reporterStore = MBIssueKeychainReporterSessionStore(
-    service: Bundle.main.bundleIdentifier! + ".MBIssueKit"
-)
-let reporterAuthentication = try MBIssueReporterAuthenticationConfiguration(
-    callbackURLScheme: "sonex-mbissue",
-    browserSessionPolicy: .shared,
-    authorizationTimeout: 300,
-    pollingInterval: 1,
-    sessionStore: reporterStore
-)
-let gateway = try MBIssueGatewayConfiguration(
-    baseURL: URL(string: "https://api.example.com")!,
-    displayName: "Sonex issue reporting",
-    reporterAuthentication: reporterAuthentication,
-    accessTokenProvider: {
-        guard let token = Session.shared.accessToken else {
-            throw SessionError.notAuthenticated
-        }
-        return token
-    }
+let jira = try MBIssueJiraConfiguration(
+    clientID: AppConfiguration.jiraClientID,
+    clientSecret: AppConfiguration.jiraClientSecret,
+    callbackURL: URL(string: "myapp-mbissue://oauth/callback")!,
+    siteURL: URL(string: "https://company.atlassian.net")!,
+    projectKey: "MOBILE",
+    issueTypeID: "10001",
+    boardID: 42,
+    sprintFieldID: "customfield_10020",
+    labels: ["ios"],
+    priorityNames: [
+        .blocker: "Highest",
+        .major: "High",
+        .minor: "Medium",
+    ],
+    browserSessionPolicy: .shared
 )
 
-MBIssueKit.configure(MBIssueKitConfiguration(
-    gateway: gateway,
+let configuration = try MBIssueKitConfiguration(
+    jira: jira,
     environment: "staging",
     additionalContext: ["API cluster": "staging-eu"]
-))
+)
+
+Task { @MainActor in
+    try await MBIssueKit.start(configuration)
+    MBIssueKit.install()
+}
 ```
 
-The provider is asynchronous and runs immediately before a submission. It can therefore read a refreshed access token
-from the host app's keychain or session store. Do not return an issue-tracker token from this closure.
+`projectKey`, `issueTypeID`, `boardID`, `sprintFieldID`, labels, and native Jira priority names belong to the host app's
+destination and are never fixed by MBIssueKit. The provider requires exactly one active sprint on the configured board.
 
-Register the same custom URL scheme in the app target. Interactive login uses a shared system authentication session by
-default. This keeps identity-provider and installed-app handoffs compatible and can reuse an existing browser login. Choose
-`.ephemeral` only when isolation is more important than handoff compatibility and repeated login prompts. The issue
-tracker's authorization code and access/refresh tokens terminate at the backend; the callback URL
-returning to the app contains no secret. Only a backend-issued, revocable reporter session is stored in the device-only,
-non-synchronizing Keychain item.
+At startup, ``start(_:)`` moves the client secret into a device-only, non-synchronizing Keychain item. OAuth
+access and rotating refresh tokens, accessible cloud selection, reporter identity, and Personal Data Reporting schedule
+are stored in the same protected boundary. ``MBIssueProvider/disconnect()`` deletes the connected reporter session while
+retaining the application-level client secret for the next login.
 
-While the browser is open, MBIssueKit polls the authenticated backend for the one-time authorization's provider-neutral
-status. This is a fallback for installed identity-provider apps that complete the server callback but fail to return control
-to `ASWebAuthenticationSession`. The proof is sent in a TLS-protected POST body, never in a URL, and every status request
-is bound by the backend to the same host user and device. Polling stops on completion, rejection, cancellation, server
-expiry, or `authorizationTimeout`; suspended polling naturally resumes when the host app becomes active again.
+## Register the callback
 
-The opaque reporter session may be short-lived. MBIssueKit renews it through
-`POST /issue-reporting/api/v1/reporter/session` using only the host application's current access token. The backend must
-bind renewal to the same authenticated host user and device. A missing or revoked binding returns
-`reporter_authorization_required`, at which point interactive authorization is required again.
+Register the callback URL scheme, such as `myapp-mbissue`, under the app target's URL Types. The full callback URL must
+exactly match the redirect URL configured in the Atlassian developer console.
 
-## Toggle the overlay
-
-Forward a shake notification to ``MBIssueKit/toggle(referenceWindow:)``:
-
-```swift
-MBIssueKit.toggle()
-```
-
-Forward custom URL callbacks before the host application's own deep-link router.
-This fallback is required when an identity-provider handoff returns directly to
-the app instead of completing the system web authentication session:
+Forward incoming URLs before the host application's own router. This also handles installed identity-provider app
+handoffs that return directly to the application:
 
 ```swift
 .onOpenURL { url in
@@ -86,29 +68,33 @@ the app instead of completing the system web authentication session:
 }
 ```
 
-This only shows or hides the floating bar. The composer opens when the user chooses Report on that bar.
+The default `.shared` browser session can reuse Safari/Atlassian login state and supports installed-app handoffs.
+Choose `.ephemeral` when the reporter must use an isolated browser session.
 
-`environment` and `additionalContext` are non-secret values included in the technical context shown to the user and
-sent to the reporting backend. Never put tokens, personal data, or request/response payloads in `additionalContext`.
+## Control the overlay
 
-## Server contract
+Forward the shake gesture to:
 
-The package posts multipart data to `/issue-reporting/api/v1/reports`, using the host token as a Bearer credential and
-the report UUID as `Idempotency-Key`. If reporter authentication is configured it also sends the opaque session in
-`X-MBIssue-Reporter-Session`; never in the request body. The backend validates both sessions, owns provider OAuth
-credentials and routing, creates the issue, and uploads selected screenshots. The response contains `providerID`,
-`providerDisplayName`, `issueID`, `issueKey`, and `issueURL`.
+```swift
+MBIssueKit.toggle()
+```
 
-When a report is rejected because its reporter session expired, the package performs one single-flight renewal and retries
-that same idempotent request once. It never renews after an ordinary permission, validation, transport, or provider error.
+This only shows or hides the floating bar. The composer opens when the reporter selects Report on that bar. Use
+``present(referenceWindow:)`` only when the host app intentionally wants to open the composer immediately, and call
+``remove()`` when the development tool should no longer be available.
 
-Interactive authorization uses these provider-neutral endpoints:
+`environment` and `additionalContext` are included in the technical context shown to the reporter. Do not place
+credentials or request/response payloads in `additionalContext`.
 
-- `POST /issue-reporting/api/v1/reporter/authorization` creates a short-lived challenge.
-- `POST /issue-reporting/api/v1/reporter/authorization/{id}/status` reads its reduced status using the in-memory proof.
-- `POST /issue-reporting/api/v1/reporter/authorization/{id}/complete` consumes a ready challenge and issues the opaque
-  reporter session.
+## Supply another provider
 
-## Remove the overlay
+Implement ``MBIssueProvider`` and pass it through the provider initializer:
 
-Call ``MBIssueKit/remove()`` when the development tool should no longer be available.
+```swift
+let configuration = MBIssueKitConfiguration(
+    provider: azureProvider,
+    environment: "staging"
+)
+```
+
+This preserves the report UI and local model while replacing authentication, destination routing, and submission.
