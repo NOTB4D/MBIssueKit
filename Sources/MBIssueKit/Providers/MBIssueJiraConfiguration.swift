@@ -77,6 +77,12 @@ public struct MBIssueJiraConfiguration: Sendable {
         "report:personal-data",
     ]
 
+    static let requiredSubmissionScopes = [
+        "read:jira-work",
+        "write:jira-work",
+        "read:sprint:jira-software",
+    ]
+
     private static func required(_ value: String, name: String) throws -> String {
         let normalized = value.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !normalized.isEmpty else {

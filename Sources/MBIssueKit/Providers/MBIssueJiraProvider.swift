@@ -357,8 +357,8 @@ public actor MBIssueJiraProvider: MBIssueProvider {
         guard let value else {
             return configuration.scopes
         }
-        let scopes = value.split(separator: " ").map(String.init)
-        guard Set(MBIssueJiraConfiguration.defaultScopes).isSubset(of: Set(scopes)) else {
+        let scopes = value.split(whereSeparator: \.isWhitespace).map(String.init)
+        guard Set(MBIssueJiraConfiguration.requiredSubmissionScopes).isSubset(of: Set(scopes)) else {
             throw MBIssueProviderError.permissionDenied
         }
         return scopes

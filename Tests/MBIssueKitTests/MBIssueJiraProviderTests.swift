@@ -55,14 +55,50 @@ struct MBIssueJiraProviderTests {
         ])
     }
 
-    @Test("OAuth grant must include every SDK scope")
-    func rejectsIncompleteGrant() async throws {
+    @Test("OAuth grant accepts Atlassian metadata scope omissions")
+    func acceptsMetadataScopeOmissions() async throws {
         let transport = try JiraQueueTransport(responses: [
             json([
                 "access_token": "access-1",
                 "refresh_token": "refresh-1",
                 "expires_in": 3600,
                 "scope": "offline_access read:me read:jira-work write:jira-work read:sprint:jira-software",
+            ]),
+            json([[
+                "id": "cloud-1",
+                "url": "https://mobven.atlassian.net",
+            ]]),
+            json([
+                "account_id": "account-1",
+                "name": "QA User",
+                "account_status": "active",
+            ]),
+        ])
+        let provider = try MBIssueJiraProvider(
+            configuration: jiraConfiguration(),
+            transport: transport,
+            vault: MBIssueJiraCredentialVault(store: JiraInMemorySecureStore()),
+            stateGenerator: { "expected-state" }
+        )
+
+        _ = try await provider.authorizationURL()
+        let callbackURL = try #require(URL(
+            string: "mbissue-sonex://oauth/callback?code=oauth-code&state=expected-state"
+        ))
+
+        let connection = try await provider.completeAuthorization(callbackURL: callbackURL)
+
+        #expect(connection.reporter?.displayName == "QA User")
+    }
+
+    @Test("OAuth grant rejects a missing issue submission scope")
+    func rejectsMissingSubmissionScope() async throws {
+        let transport = try JiraQueueTransport(responses: [
+            json([
+                "access_token": "access-1",
+                "refresh_token": "refresh-1",
+                "expires_in": 3600,
+                "scope": "offline_access read:me read:jira-work read:sprint:jira-software report:personal-data",
             ]),
         ])
         let provider = try MBIssueJiraProvider(
