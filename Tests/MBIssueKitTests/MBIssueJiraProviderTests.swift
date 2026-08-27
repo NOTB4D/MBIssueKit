@@ -120,12 +120,15 @@ struct MBIssueJiraProviderTests {
 
     @Test("Issue creation resolves active sprint and uploads every screenshot")
     func createsIssueInActiveSprint() async throws {
-        let transport = try JiraQueueTransport(responses: [
-            json(["values": [["id": 77, "name": "Sprint 77", "state": "active"]]]),
-            json(["id": "10001", "key": "MAD-999"]),
-            json([["id": "attachment-1", "filename": "one.png"]]),
-            json([["id": "attachment-2", "filename": "two.png"]]),
-        ])
+        let transport = try JiraQueueTransport(
+            responses: [
+                json(["values": [["id": 77, "name": "Sprint 77", "state": "active"]]]),
+                json(["id": "10001", "key": "MAD-999"]),
+                json([["id": "attachment-1", "filename": "one.png"]]),
+                json([["id": "attachment-2", "filename": "two.png"]]),
+            ],
+            rawResponses: [MBIssueRawNetworkResponse(statusCode: 204, data: Data(), headers: [:])]
+        )
         let vault = MBIssueJiraCredentialVault(store: JiraInMemorySecureStore())
         try await vault.bootstrap(clientSecret: "app-client-secret")
         try await vault.saveAuthorization(.fixture())
@@ -159,24 +162,32 @@ struct MBIssueJiraProviderTests {
         let object = try #require(JSONSerialization.jsonObject(with: createBody) as? [String: Any])
         let fields = try #require(object["fields"] as? [String: Any])
         #expect(fields["summary"] as? String == "Login button does not respond")
-        #expect(fields["customfield_10020"] as? Int == 77)
+        #expect(fields["customfield_10020"] == nil)
         #expect((fields["project"] as? [String: String])?["key"] == "MAD")
+        let moveRequest = try #require(await transport.rawRequests.first)
+        #expect(moveRequest.url?.path == "/ex/jira/cloud-1/rest/agile/1.0/sprint/77/issue")
+        let moveBody = try #require(moveRequest.httpBody)
+        let moveObject = try #require(JSONSerialization.jsonObject(with: moveBody) as? [String: Any])
+        #expect(moveObject["issues"] as? [String] == ["MAD-999"])
         #expect(requests[2].value(forHTTPHeaderField: "X-Atlassian-Token") == "no-check")
         #expect(requests[2].httpBody?.isEmpty == false)
     }
 
     @Test("Expired access is refreshed with the Keychain client secret")
     func refreshesRotatingToken() async throws {
-        let transport = try JiraQueueTransport(responses: [
-            json([
-                "access_token": "access-2",
-                "refresh_token": "refresh-2",
-                "expires_in": 3600,
-                "scope": "offline_access read:me read:jira-work write:jira-work read:sprint:jira-software report:personal-data",
-            ]),
-            json(["values": [["id": 77, "name": "Sprint", "state": "active"]]]),
-            json(["id": "10001", "key": "MAD-1000"]),
-        ])
+        let transport = try JiraQueueTransport(
+            responses: [
+                json([
+                    "access_token": "access-2",
+                    "refresh_token": "refresh-2",
+                    "expires_in": 3600,
+                    "scope": "offline_access read:me read:jira-work write:jira-work read:sprint:jira-software report:personal-data",
+                ]),
+                json(["values": [["id": 77, "name": "Sprint", "state": "active"]]]),
+                json(["id": "10001", "key": "MAD-1000"]),
+            ],
+            rawResponses: [MBIssueRawNetworkResponse(statusCode: 204, data: Data(), headers: [:])]
+        )
         let vault = MBIssueJiraCredentialVault(store: JiraInMemorySecureStore())
         try await vault.bootstrap(clientSecret: "app-client-secret")
         try await vault.saveAuthorization(.fixture(expiresAt: .distantPast))

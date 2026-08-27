@@ -164,7 +164,6 @@ public actor MBIssueJiraProvider: MBIssueProvider {
         let activeSprintID = try activeSprintID(in: page.values)
         let createRequest = try MBIssueJiraRequestBuilder.createIssue(
             entry: entry,
-            activeSprintID: activeSprintID,
             configuration: configuration,
             cloudID: authorization.cloudID,
             accessToken: authorization.accessToken
@@ -173,6 +172,13 @@ public actor MBIssueJiraProvider: MBIssueProvider {
             createRequest,
             decoding: CreateIssueResponse.self
         )
+        let moveRequest = try MBIssueJiraRequestBuilder.moveIssue(
+            issueKey: created.key,
+            activeSprintID: activeSprintID,
+            cloudID: authorization.cloudID,
+            accessToken: authorization.accessToken
+        )
+        try MBIssueHTTPResponseDecoder.validate(await transport.sendRaw(moveRequest))
         var uploaded: [String] = []
         for url in screenshotURLs {
             let request = try MBIssueJiraRequestBuilder.attachment(

@@ -105,7 +105,6 @@ enum MBIssueJiraRequestBuilder {
 
     static func createIssue(
         entry: MBIssueEntry,
-        activeSprintID: Int,
         configuration: MBIssueJiraConfiguration,
         cloudID: String,
         accessToken: String
@@ -119,7 +118,6 @@ enum MBIssueJiraRequestBuilder {
             "summary": entry.title,
             "description": descriptionDocument(for: entry),
             "labels": Array(Set(configuration.labels + ["severity-\(entry.severity.rawValue)"])).sorted(),
-            configuration.sprintFieldID: activeSprintID,
         ]
         if let priority = configuration.priorityNames[entry.severity] {
             fields["priority"] = ["name": priority]
@@ -128,6 +126,26 @@ enum MBIssueJiraRequestBuilder {
         request.setValue("application/json", forHTTPHeaderField: "Content-Type")
         request.httpBody = try JSONSerialization.data(
             withJSONObject: ["fields": fields],
+            options: [.sortedKeys]
+        )
+        return request
+    }
+
+    static func moveIssue(
+        issueKey: String,
+        activeSprintID: Int,
+        cloudID: String,
+        accessToken: String
+    ) throws -> URLRequest {
+        guard let url = URL(
+            string: "https://api.atlassian.com/ex/jira/\(cloudID)/rest/agile/1.0/sprint/\(activeSprintID)/issue"
+        ) else {
+            throw MBIssueProviderError.invalidResponse
+        }
+        var request = authorizedRequest(url: url, method: "POST", accessToken: accessToken)
+        request.setValue("application/json", forHTTPHeaderField: "Content-Type")
+        request.httpBody = try JSONSerialization.data(
+            withJSONObject: ["issues": [issueKey]],
             options: [.sortedKeys]
         )
         return request
