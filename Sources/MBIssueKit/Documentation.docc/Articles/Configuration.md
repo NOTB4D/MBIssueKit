@@ -45,8 +45,11 @@ Task { @MainActor in
 }
 ```
 
-`projectKey`, `issueTypeID`, `boardID`, `sprintFieldID`, labels, and native Jira priority names belong to the host app's
+`projectKey`, `issueTypeID`, `boardID`, `sprintFieldID`, labels, and Jira priority preferences belong to the host app's
 destination and are never fixed by MBIssueKit. The provider requires exactly one active sprint on the configured board.
+Before creating the first issue, MBIssueKit reads Jira create metadata and resolves the selected severity to an allowed
+priority ID. A matching configured name is preferred; localized or custom schemes fall back to Jira's returned priority
+order. The resolved values are cached for the provider session.
 
 At startup, ``start(_:)`` moves the client secret into a device-only, non-synchronizing Keychain item. OAuth
 access and rotating refresh tokens, accessible cloud selection, reporter identity, and Personal Data Reporting schedule

@@ -123,6 +123,17 @@ struct MBIssueJiraProviderTests {
         let transport = try JiraQueueTransport(
             responses: [
                 json(["values": [["id": 77, "name": "Sprint 77", "state": "active"]]]),
+                json([
+                    "fields": [[
+                        "fieldId": "priority",
+                        "key": "priority",
+                        "allowedValues": [
+                            ["id": "1", "name": "Kritik"],
+                            ["id": "2", "name": "Yüksek"],
+                            ["id": "3", "name": "Orta"],
+                        ],
+                    ]],
+                ]),
                 json(["id": "10001", "key": "MAD-999"]),
                 json([["id": "attachment-1", "filename": "one.png"]]),
                 json([["id": "attachment-2", "filename": "two.png"]]),
@@ -155,22 +166,24 @@ struct MBIssueJiraProviderTests {
         #expect(receipt.issueURL.absoluteString == "https://mobven.atlassian.net/browse/MAD-999")
         #expect(receipt.uploadedFileNames == ["one.png", "two.png"])
         let requests = await transport.requests
-        #expect(requests.count == 4)
+        #expect(requests.count == 5)
         #expect(requests[0].url?.path == "/ex/jira/cloud-1/rest/agile/1.0/board/1026/sprint")
-        #expect(requests[1].url?.path == "/ex/jira/cloud-1/rest/api/3/issue")
-        let createBody = try #require(requests[1].httpBody)
+        #expect(requests[1].url?.path == "/ex/jira/cloud-1/rest/api/3/issue/createmeta/MAD/issuetypes/10841")
+        #expect(requests[2].url?.path == "/ex/jira/cloud-1/rest/api/3/issue")
+        let createBody = try #require(requests[2].httpBody)
         let object = try #require(JSONSerialization.jsonObject(with: createBody) as? [String: Any])
         let fields = try #require(object["fields"] as? [String: Any])
         #expect(fields["summary"] as? String == "Login button does not respond")
         #expect(fields["customfield_10020"] == nil)
         #expect((fields["project"] as? [String: String])?["key"] == "MAD")
+        #expect((fields["priority"] as? [String: String])?["id"] == "2")
         let moveRequest = try #require(await transport.rawRequests.first)
         #expect(moveRequest.url?.path == "/ex/jira/cloud-1/rest/agile/1.0/sprint/77/issue")
         let moveBody = try #require(moveRequest.httpBody)
         let moveObject = try #require(JSONSerialization.jsonObject(with: moveBody) as? [String: Any])
         #expect(moveObject["issues"] as? [String] == ["MAD-999"])
-        #expect(requests[2].value(forHTTPHeaderField: "X-Atlassian-Token") == "no-check")
-        #expect(requests[2].httpBody?.isEmpty == false)
+        #expect(requests[3].value(forHTTPHeaderField: "X-Atlassian-Token") == "no-check")
+        #expect(requests[3].httpBody?.isEmpty == false)
     }
 
     @Test("Expired access is refreshed with the Keychain client secret")
@@ -184,6 +197,13 @@ struct MBIssueJiraProviderTests {
                     "scope": "offline_access read:me read:jira-work write:jira-work read:sprint:jira-software report:personal-data",
                 ]),
                 json(["values": [["id": 77, "name": "Sprint", "state": "active"]]]),
+                json([
+                    "fields": [[
+                        "fieldId": "priority",
+                        "key": "priority",
+                        "allowedValues": [["id": "2", "name": "High"]],
+                    ]],
+                ]),
                 json(["id": "10001", "key": "MAD-1000"]),
             ],
             rawResponses: [MBIssueRawNetworkResponse(statusCode: 204, data: Data(), headers: [:])]

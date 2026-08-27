@@ -38,8 +38,8 @@ MBIssueKit uses
 ## Jira setup
 
 Create an Atlassian OAuth 2.0 (3LO) app and register the same custom callback URL used by the iOS application. Supply
-project, issue type, board, sprint field, labels, and priority mappings per host app; these values are not hardcoded in
-the SDK.
+project, issue type, board, sprint field, labels, and priority preferences per host app; these values are not hardcoded
+in the SDK.
 
 ```swift
 import MBIssueKit
@@ -72,6 +72,11 @@ Task { @MainActor in
     MBIssueKit.install()
 }
 ```
+
+Priority names are preferences rather than API values sent directly to Jira. MBIssueKit reads the selected project and
+issue type's create metadata, resolves the preference to Jira's stable priority ID, and caches the allowed values for
+the provider session. If a board uses localized or custom names, the selected severity falls back to Jira's priority
+order instead of sending an invalid hardcoded name.
 
 `start(_:)` transfers the supplied client secret to a device-only, non-synchronizing Keychain item. Jira access tokens,
 rotating refresh tokens, the selected Jira cloud, and the reporter profile are also persisted in Keychain. OAuth,

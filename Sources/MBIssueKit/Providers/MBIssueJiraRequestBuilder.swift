@@ -103,8 +103,31 @@ enum MBIssueJiraRequestBuilder {
         return authorizedRequest(url: url, method: "GET", accessToken: accessToken)
     }
 
+    static func createMetadata(
+        configuration: MBIssueJiraConfiguration,
+        cloudID: String,
+        accessToken: String
+    ) throws -> URLRequest {
+        let projectKey = configuration.projectKey.addingPercentEncoding(
+            withAllowedCharacters: .urlPathAllowed
+        ) ?? configuration.projectKey
+        let issueTypeID = configuration.issueTypeID.addingPercentEncoding(
+            withAllowedCharacters: .urlPathAllowed
+        ) ?? configuration.issueTypeID
+        let path = "/ex/jira/\(cloudID)/rest/api/3/issue/createmeta/\(projectKey)/issuetypes/\(issueTypeID)"
+        guard var components = URLComponents(string: "https://api.atlassian.com\(path)") else {
+            throw MBIssueProviderError.invalidResponse
+        }
+        components.queryItems = [URLQueryItem(name: "maxResults", value: "100")]
+        guard let url = components.url else {
+            throw MBIssueProviderError.invalidResponse
+        }
+        return authorizedRequest(url: url, method: "GET", accessToken: accessToken)
+    }
+
     static func createIssue(
         entry: MBIssueEntry,
+        priorityID: String?,
         configuration: MBIssueJiraConfiguration,
         cloudID: String,
         accessToken: String
@@ -119,8 +142,8 @@ enum MBIssueJiraRequestBuilder {
             "description": descriptionDocument(for: entry),
             "labels": Array(Set(configuration.labels + ["severity-\(entry.severity.rawValue)"])).sorted(),
         ]
-        if let priority = configuration.priorityNames[entry.severity] {
-            fields["priority"] = ["name": priority]
+        if let priorityID {
+            fields["priority"] = ["id": priorityID]
         }
         var request = authorizedRequest(url: url, method: "POST", accessToken: accessToken)
         request.setValue("application/json", forHTTPHeaderField: "Content-Type")

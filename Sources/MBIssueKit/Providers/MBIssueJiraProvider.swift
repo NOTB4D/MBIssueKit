@@ -13,6 +13,7 @@ public actor MBIssueJiraProvider: MBIssueProvider {
     private let stateGenerator: @Sendable () -> String
     private var pendingClientSecret: String?
     private var pendingOAuthState: String?
+    private var cachedPriorityOptions: [MBIssueJiraPriorityOption]?
 
     public init(configuration: MBIssueJiraConfiguration) throws {
         let store = MBIssueKeychainSecureStore(
@@ -129,6 +130,7 @@ public actor MBIssueJiraProvider: MBIssueProvider {
             throw MBIssueProviderError.jiraAccountUnavailable
         }
         let currentDate = now()
+        cachedPriorityOptions = nil
         let authorization = MBIssueJiraAuthorization(
             accessToken: token.accessToken,
             refreshToken: refreshToken,
@@ -147,6 +149,7 @@ public actor MBIssueJiraProvider: MBIssueProvider {
 
     public func disconnect() async throws {
         pendingOAuthState = nil
+        cachedPriorityOptions = nil
         try await vault.deleteAuthorization()
     }
 
@@ -162,8 +165,13 @@ public actor MBIssueJiraProvider: MBIssueProvider {
         )
         let page: SprintPage = try await transport.send(sprintRequest, decoding: SprintPage.self)
         let activeSprintID = try activeSprintID(in: page.values)
+        let priorityID = try await priorityID(
+            for: entry.severity,
+            authorization: authorization
+        )
         let createRequest = try MBIssueJiraRequestBuilder.createIssue(
             entry: entry,
+            priorityID: priorityID,
             configuration: configuration,
             cloudID: authorization.cloudID,
             accessToken: authorization.accessToken
@@ -393,6 +401,38 @@ public actor MBIssueJiraProvider: MBIssueProvider {
         default:
             throw MBIssueProviderError.multipleActiveSprints(boardID: configuration.boardID)
         }
+    }
+
+    private func priorityID(
+        for severity: MBIssueSeverity,
+        authorization: MBIssueJiraAuthorization
+    ) async throws -> String? {
+        guard let preferredName = configuration.priorityNames[severity] else {
+            return nil
+        }
+        let options: [MBIssueJiraPriorityOption]
+        if let cachedPriorityOptions {
+            options = cachedPriorityOptions
+        } else {
+            let request = try MBIssueJiraRequestBuilder.createMetadata(
+                configuration: configuration,
+                cloudID: authorization.cloudID,
+                accessToken: authorization.accessToken
+            )
+            let page: MBIssueJiraCreateMetadataPage = try await transport.send(
+                request,
+                decoding: MBIssueJiraCreateMetadataPage.self
+            )
+            options = page.fields.first(where: {
+                $0.fieldID == "priority" || $0.key == "priority"
+            })?.allowedValues ?? []
+            cachedPriorityOptions = options
+        }
+        return MBIssueJiraPriorityResolver.resolve(
+            severity: severity,
+            preferredName: preferredName,
+            options: options
+        )
     }
 }
 
